@@ -176,51 +176,55 @@ const NightOwlsApp = () => {
     return is24Hours || isLateNight || hasLateNightName;
   };
 
+  // Night owl scoring for sorting only (not filtering)
   const calculateNightOwlScore = (place, category, isLateNight) => {
-    let score = 0;
+    let score = 1; // Everyone gets at least 1 point
     
     const businessName = place.name.toLowerCase();
     const hoursDisplay = (place.hours?.display || '').toLowerCase();
     
-    // Base score for categories
+    // Base scores for categories
     const categoryScores = {
-      'gas': 4,        // Gas stations often 24/7
-      'pharmacy': 3,   // CVS, Walgreens often late
-      'grocery': 3,    // Convenience stores
-      'food': 2,       // Restaurants vary
-      'coffee': 2,     // Some coffee shops late
-      'gym': 3,        // Many gyms 24/7
+      'gas': 3,
+      'pharmacy': 2,
+      'grocery': 2,
+      'food': 2,
+      'coffee': 2,
+      'gym': 2,
       'entertainment': 1,
       'services': 1
     };
     
     score += categoryScores[category] || 1;
     
-    // Bonus for 24/7 indicators
-    if (isLateNight) score += 3;
+    // Big bonus for confirmed late night
+    if (isLateNight) score += 4;
     
     // Bonus for late night chains
     const lateNightChains = [
       'mcdonald', 'taco bell', 'del taco', 'jack in the box',
       'dennys', 'ihop', 'waffle house', '7-eleven', 'circle k',
-      'cvs', 'walgreens', 'rite aid', 'shell', 'chevron'
+      'cvs', 'walgreens', 'rite aid', 'shell', 'chevron', 'starbucks'
     ];
     
     if (lateNightChains.some(chain => businessName.includes(chain))) {
-      score += 2;
+      score += 3;
     }
     
     // Bonus for time indicators in hours
-    const lateTimeIndicators = ['2am', '3am', '4am', 'midnight', 'late'];
+    const lateTimeIndicators = ['2am', '3am', '4am', 'midnight', 'late', '24'];
     if (lateTimeIndicators.some(time => hoursDisplay.includes(time))) {
-      score += 2;
+      score += 3;
     }
     
-    return Math.min(10, score); // Cap at 10
+    // Bonus for higher rated places
+    if (place.rating && place.rating > 8) score += 1;
+    
+    return Math.min(10, score);
   };
 
   const getLateNightLevel = (place, isLateNight) => {
-    if (!place.hours) return 'Unknown';
+    if (!place.hours) return 'Check Hours';
     
     const hoursDisplay = (place.hours.display || '').toLowerCase();
     
@@ -436,7 +440,7 @@ const NightOwlsApp = () => {
     ]
   };
 
-  // Enhanced fetch real late-night businesses using Foursquare Places API
+  // Enhanced fetch ALL late-night businesses using Foursquare Places API
   const fetchRealPlaces = async (lat, lng, radiusKm = 5) => {
     setIsLoadingPlaces(true);
     
@@ -458,36 +462,42 @@ const NightOwlsApp = () => {
     try {
       const radius = Math.min(radiusKm * 1000, 100000); // Max 100km
       
-      // Enhanced category list for better late-night detection
+      // Enhanced category list for ALL types of businesses
       const categories = [
-        // Food & Dining (lots of late night options)
+        // Food & Dining (ALL restaurants and food)
         '13065', // Fast Food Restaurant
         '13025', // Restaurant  
         '13003', // Bar (great for late night)
         '13035', // Diner (classic late night)
-        '13145', // Taco Place (often late night)
-        '13064', // Pizza Place (pizza at 2 AM!)
-        '13031', // Breakfast Spot (some 24/7)
+        '13145', // Taco Place
+        '13064', // Pizza Place
+        '13031', // Breakfast Spot
         '13032', // Coffee Shop
         '13033', // Café
         '13034', // Tea Room
+        '13009', // Burger Joint
+        '13199', // Sandwiches
+        '13302', // Chinese Restaurant
+        '13307', // Italian Restaurant
+        '13325', // Thai Restaurant
+        '13334', // Mexican Restaurant
         
         // Convenience & Essentials
-        '17043', // Convenience Store (7-Eleven, etc.)
+        '17043', // Convenience Store
         '17051', // Supermarket
         '17069', // Gas Station
         '17097', // Pharmacy
         
         // Services & Entertainment  
-        '18021', // Gym (24 Hour Fitness, etc.)
+        '18021', // Gym
         '17114', // ATM
         '17115', // Bank
-        '10032', // Movie Theater (late shows)
+        '10032', // Movie Theater
         '10027', // Bowling Alley
-        '17050', // Laundromat (often 24/7)
+        '17050', // Laundromat
         
         // Specialty Late Night
-        '13385', // Donut Shop (classic late night)
+        '13385', // Donut Shop
         '13383', // Ice Cream Shop
         '13377'  // Bagel Shop
       ].join(',');
@@ -499,7 +509,7 @@ const NightOwlsApp = () => {
         `limit=50&` +
         `fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity,hours_popular`;
 
-      console.log('🌙 Searching for late night places:', { lat: lat.toFixed(4), lng: lng.toFixed(4), radius: radiusKm });
+      console.log('🌙 Searching for ALL late night places:', { lat: lat.toFixed(4), lng: lng.toFixed(4), radius: radiusKm });
 
       const response = await fetch(url, {
         headers: {
@@ -531,9 +541,9 @@ const NightOwlsApp = () => {
       }
 
       const data = await response.json();
-      console.log(`🔍 Found ${data.results.length} potential late night places from Foursquare`);
+      console.log(`🔍 Found ${data.results.length} total businesses from Foursquare`);
       
-      // Enhanced business processing with night owl scoring
+      // MUCH MORE INCLUSIVE: Process ALL businesses, just sort by late night relevance
       const businesses = data.results
         .map((place, index) => {
           const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
@@ -545,13 +555,11 @@ const NightOwlsApp = () => {
           
           // Check if it's a late night business
           const isLateNight = detectLateNightHours(place);
-          const isLikelyLateNightCategory = ['gas', 'pharmacy', 'grocery', 'food', 'coffee'].includes(category);
           
-          // For night owls app, prioritize late night places but include others too
+          // Calculate night owl score for sorting (NOT filtering)
           const nightOwlScore = calculateNightOwlScore(place, category, isLateNight);
           
-          // Skip places with very low night owl scores (clearly not late night)
-          if (nightOwlScore < 2) return null;
+          // NO FILTERING - Include ALL businesses that match categories
 
           return {
             id: place.fsq_id,
@@ -585,9 +593,9 @@ const NightOwlsApp = () => {
             nightOwlScore
           };
         })
-        .filter(Boolean)
+        .filter(Boolean) // Only remove null entries (outside radius)
         .sort((a, b) => {
-          // Sort by night owl score first, then distance
+          // Sort by night owl score first (higher scores first), then distance
           if (b.nightOwlScore !== a.nightOwlScore) {
             return b.nightOwlScore - a.nightOwlScore;
           }
@@ -598,11 +606,7 @@ const NightOwlsApp = () => {
       setCachedPlaces(lat, lng, radiusKm, businesses);
       setRealBusinesses(businesses);
       
-      if (businesses.length === 0) {
-        console.log('🌙 No late night places found - try expanding search radius');
-      } else {
-        console.log(`✅ Loaded ${businesses.length} night-friendly businesses`);
-      }
+      console.log(`✅ Loaded ${businesses.length} businesses (sorted by late night relevance)`);
       
     } catch (error) {
       console.error('❌ Foursquare API Error:', error.message);
@@ -635,6 +639,12 @@ const NightOwlsApp = () => {
       '13031': 'food',     // Breakfast Spot
       '13033': 'coffee',   // Café
       '13034': 'coffee',   // Tea Room
+      '13009': 'food',     // Burger Joint
+      '13199': 'food',     // Sandwiches
+      '13302': 'food',     // Chinese Restaurant
+      '13307': 'food',     // Italian Restaurant
+      '13325': 'food',     // Thai Restaurant
+      '13334': 'food',     // Mexican Restaurant
       '13385': 'food',     // Donut Shop
       '13383': 'food',     // Ice Cream Shop
       '13377': 'food',     // Bagel Shop
@@ -650,7 +660,7 @@ const NightOwlsApp = () => {
       '17050': 'services'  // Laundromat
     };
     
-    return categoryMap[primaryCategory.id] || 'services';
+    return categoryMap[primaryCategory.id] || 'food'; // Default to food for restaurants
   };
 
   // Format Foursquare address
@@ -1143,7 +1153,7 @@ const NightOwlsApp = () => {
           <div>
             <div className="flex items-center space-x-3 mb-2">
               <h2 className="text-2xl font-bold text-white">
-                {isLoadingPlaces ? 'Finding late night places...' : `${filteredBusinesses.length} late night places found`}
+                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
               </h2>
               {realBusinesses.length > 0 ? (
                 <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
@@ -1160,7 +1170,7 @@ const NightOwlsApp = () => {
               )}
             </div>
             <p className="text-sm text-gray-400 font-medium">
-              Within {searchRadius} miles of {searchLocation === 'Current Location' ? 'your location' : searchLocation}
+              Within {searchRadius} miles of {searchLocation === 'Current Location' ? 'your location' : searchLocation} • Sorted by late night relevance
               {allBusinesses.length !== filteredBusinesses.length && 
                 ` • ${allBusinesses.length - filteredBusinesses.length} filtered out`
               }
@@ -1171,15 +1181,15 @@ const NightOwlsApp = () => {
         {isLoadingPlaces && (
           <div className="text-center py-12">
             <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-400 font-medium">Loading late night places from Foursquare...</p>
+            <p className="text-gray-400 font-medium">Loading businesses from Foursquare...</p>
           </div>
         )}
 
         {!userLocation && !isLoadingLocation && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🌙</div>
-            <h3 className="text-xl font-bold text-white mb-2">Find late night places near you</h3>
-            <p className="text-gray-400 mb-6">We'll find restaurants, gas stations, and services open until 2AM+ using Foursquare</p>
+            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
+            <p className="text-gray-400 mb-6">We'll find restaurants, services, and businesses open late or all night using Foursquare</p>
             <button
               onClick={getCurrentLocation}
               className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
@@ -1194,7 +1204,7 @@ const NightOwlsApp = () => {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🔑</div>
             <h3 className="text-xl font-bold text-white mb-2">Add Foursquare API Key for Real Data</h3>
-            <p className="text-gray-400 mb-6">Get 100,000 free requests/day with real late night business hours and ratings</p>
+            <p className="text-gray-400 mb-6">Get 100,000 free requests/day with real business hours and ratings</p>
             <div className="space-y-3">
               <a
                 href="https://foursquare.com/developers/"
@@ -1433,7 +1443,7 @@ const NightOwlsApp = () => {
       <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
         <div className="text-xs text-gray-500 space-y-2">
           <div>✅ <span className="text-green-400">Working Now:</span> GPS • Navigation • Rideshare • Favorites • Reports • Location Search</div>
-          <div>🌙 <span className="text-purple-400">Late Night Focus:</span> Find restaurants, gas stations & services open until 2AM+</div>
+          <div>🌙 <span className="text-purple-400">All Businesses:</span> Shows ALL businesses sorted by late night relevance</div>
           <div>🚧 <span className="text-yellow-400">Coming Soon:</span> User Reviews • Photo Upload • Push Notifications • Enhanced Filters</div>
         </div>
       </div>
