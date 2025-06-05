@@ -420,8 +420,9 @@ const NightOwlsApp = () => {
     }
     
     // If no API key, use mock data
-    if (!FOURSQUARE_API_KEY || FOURSQUARE_API_KEY === 'YOUR_FOURSQUARE_API_KEY') {
-      console.log('Using demo data - add your Foursquare API key for real places');
+    if (!FOURSQUARE_API_KEY || FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) {
+      console.log('❌ No valid API key - using demo data');
+      console.log('Current API key:', FOURSQUARE_API_KEY);
       setIsLoadingPlaces(false);
       return;
     }
@@ -430,6 +431,7 @@ const NightOwlsApp = () => {
       // FIXED: Convert miles to meters correctly for Foursquare API
       const radiusMeters = Math.min(radiusMiles * 1609.34, 100000); // 1 mile = 1609.34 meters, max 100km
       
+      console.log(`🌙 Using Foursquare API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
       console.log(`🌙 Searching ${radiusMiles} miles (${Math.round(radiusMeters)}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
       
       // Enhanced category list for ALL types of businesses
@@ -876,18 +878,20 @@ const NightOwlsApp = () => {
 
   // FIXED: Fetch real places when location or radius changes
   useEffect(() => {
+    console.log('🔄 Location/radius effect triggered:', { 
+      hasLocation: !!userLocation, 
+      lat: userLocation?.lat, 
+      lng: userLocation?.lng, 
+      radius: searchRadius,
+      apiKey: FOURSQUARE_API_KEY.substring(0, 10) + '...'
+    });
+    
     if (userLocation && userLocation.lat && userLocation.lng) {
-      // Check cache first, then fetch if needed
-      const cached = getCachedPlaces(userLocation.lat, userLocation.lng, searchRadius);
-      if (cached) {
-        console.log('📦 Using cached results');
-        setRealBusinesses(cached);
-      } else {
-        console.log(`🔍 Fetching new results for ${searchRadius} mile radius`);
-        fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
-      }
+      // Always try to fetch real data first, don't check cache immediately
+      console.log(`🔍 Fetching real places for ${searchRadius} mile radius`);
+      fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
     }
-  }, [userLocation, searchRadius]);
+  }, [userLocation, searchRadius, apiKey]); // Added apiKey as dependency
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -1129,7 +1133,7 @@ const NightOwlsApp = () => {
           </div>
         )}
 
-        {!isLoadingPlaces && userLocation && realBusinesses.length === 0 && (!apiKey && FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) && (
+        {!isLoadingPlaces && userLocation && realBusinesses.length === 0 && (FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🔑</div>
             <h3 className="text-xl font-bold text-white mb-2">Add Foursquare API Key for Real Data</h3>
