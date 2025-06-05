@@ -20,6 +20,8 @@ const NightOwlsApp = () => {
   const [searchRadius, setSearchRadius] = useState(5); // miles
   const [searchLocation, setSearchLocation] = useState('Current Location');
   const [showLocationSearch, setShowLocationSearch] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
 
   // Add real functionality hooks
   const [userLocation, setUserLocation] = useState(null);
@@ -30,7 +32,7 @@ const NightOwlsApp = () => {
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
 
   // Foursquare API key - users can get this free at https://foursquare.com/developers/
-  const FOURSQUARE_API_KEY = 'YOUR_FOURSQUARE_API_KEY'; // Replace with your key
+  const FOURSQUARE_API_KEY = apiKey || 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk='; // Use entered key or your real key
 
   // In-memory cache (no localStorage usage)
   const [placesCache, setPlacesCache] = useState(new Map());
@@ -1127,24 +1129,70 @@ const NightOwlsApp = () => {
           </div>
         )}
 
-        {!isLoadingPlaces && userLocation && realBusinesses.length === 0 && FOURSQUARE_API_KEY === 'YOUR_FOURSQUARE_API_KEY' && (
+        {!isLoadingPlaces && userLocation && realBusinesses.length === 0 && (!apiKey && FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🔑</div>
             <h3 className="text-xl font-bold text-white mb-2">Add Foursquare API Key for Real Data</h3>
             <p className="text-gray-400 mb-6">Get 100,000 free requests/day with real business hours and ratings</p>
-            <div className="space-y-3">
-              <a
-                href="https://foursquare.com/developers/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
-              >
-                🚀 Get Free API Key
-              </a>
+            <div className="space-y-4 max-w-md mx-auto">
+              {!showApiKeyInput ? (
+                <>
+                  <button
+                    onClick={() => setShowApiKeyInput(true)}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
+                  >
+                    🔑 Enter API Key
+                  </button>
+                  <p className="text-center text-gray-500 text-sm">or</p>
+                  <a
+                    href="https://foursquare.com/developers/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation text-center"
+                  >
+                    🚀 Get Free API Key
+                  </a>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Enter your Foursquare API key (fsq3...)"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full bg-gray-900 text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-purple-500 focus:outline-none text-sm font-mono"
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => {
+                        if (apiKey.startsWith('fsq3') && apiKey.length > 20) {
+                          setShowApiKeyInput(false);
+                          // Trigger new search with API key
+                          if (userLocation) {
+                            fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
+                          }
+                        } else {
+                          alert('Please enter a valid Foursquare API key (should start with fsq3)');
+                        }
+                      }}
+                      disabled={!apiKey.startsWith('fsq3')}
+                      className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold transition-all"
+                    >
+                      ✓ Use Key
+                    </button>
+                    <button
+                      onClick={() => setShowApiKeyInput(false)}
+                      className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-gray-500">
                 1. Sign up at foursquare.com/developers<br/>
                 2. Create new app, copy API key<br/>
-                3. Replace YOUR_FOURSQUARE_API_KEY in code
+                3. Paste key above (starts with fsq3...)
               </p>
             </div>
           </div>
