@@ -17,7 +17,7 @@ const NightOwlsApp = () => {
   const [routePlanningFor, setRoutePlanningFor] = useState(null);
   const [selectedPin, setSelectedPin] = useState(null);
   const [showPhotos, setShowPhotos] = useState(null);
-  const [searchRadius, setSearchRadius] = useState(2); // miles
+  const [searchRadius, setSearchRadius] = useState(5); // miles
   const [searchLocation, setSearchLocation] = useState('Current Location');
   const [showLocationSearch, setShowLocationSearch] = useState(false);
 
@@ -30,44 +30,41 @@ const NightOwlsApp = () => {
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
 
   // Foursquare API key - users can get this free at https://foursquare.com/developers/
-  const FOURSQUARE_API_KEY = process.env.NEXT_PUBLIC_FOURSQUARE_API_KEY || 'YOUR_FOURSQUARE_API_KEY';
+  const FOURSQUARE_API_KEY = 'YOUR_FOURSQUARE_API_KEY'; // Replace with your key
 
-  // Cache configuration
+  // In-memory cache (no localStorage usage)
+  const [placesCache, setPlacesCache] = useState(new Map());
   const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
   // Helper functions for enhanced functionality
-  const getCachedPlaces = (lat, lng, radius) => {
-    if (typeof window === 'undefined') return null;
+  const getCachedPlaces = (lat, lng, radiusMiles) => {
+    const cacheKey = `${lat.toFixed(4)}_${lng.toFixed(4)}_${radiusMiles}`;
+    const cached = placesCache.get(cacheKey);
     
-    try {
-      const cacheKey = `nightowls_${lat.toFixed(4)}_${lng.toFixed(4)}_${radius}`;
-      const cached = localStorage.getItem(cacheKey);
-      const timestamp = localStorage.getItem(`${cacheKey}_time`);
-      
-      if (cached && timestamp) {
-        const age = Date.now() - parseInt(timestamp);
-        if (age < CACHE_DURATION) {
-          console.log('📦 Using cached places data');
-          return JSON.parse(cached);
-        }
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      if (age < CACHE_DURATION) {
+        console.log('📦 Using cached places data');
+        return cached.data;
+      } else {
+        // Remove expired cache
+        setPlacesCache(prev => {
+          const newCache = new Map(prev);
+          newCache.delete(cacheKey);
+          return newCache;
+        });
       }
-    } catch (error) {
-      console.warn('Cache read error:', error);
     }
     
     return null;
   };
 
-  const setCachedPlaces = (lat, lng, radius, places) => {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      const cacheKey = `nightowls_${lat.toFixed(4)}_${lng.toFixed(4)}_${radius}`;
-      localStorage.setItem(cacheKey, JSON.stringify(places));
-      localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-    } catch (error) {
-      console.warn('Cache write error:', error);
-    }
+  const setCachedPlaces = (lat, lng, radiusMiles, places) => {
+    const cacheKey = `${lat.toFixed(4)}_${lng.toFixed(4)}_${radiusMiles}`;
+    setPlacesCache(prev => new Map(prev).set(cacheKey, {
+      data: places,
+      timestamp: Date.now()
+    }));
   };
 
   // Geocoding function to convert city names/zip codes to coordinates
@@ -408,44 +405,12 @@ const NightOwlsApp = () => {
     { id: 'services', name: 'Services', icon: Clock }
   ];
 
-  const nightReviews = {
-    1: [
-      { user: 'NightOwl92', time: '2:30 AM', text: 'Perfect late night spot! Staff is super friendly even at 3am. Coffee stays hot and the wifi is solid.', rating: 5 },
-      { user: 'StudyBuddy', time: '1:15 AM', text: 'Great for studying late. Not too crowded after midnight. Only complaint is the music can be a bit loud sometimes.', rating: 4 }
-    ],
-    2: [
-      { user: 'CoffeeLover3000', time: '11:45 PM', text: 'This place gets busy around midnight but the baristas keep things moving. Love the quiet study area in the back!', rating: 5 },
-      { user: 'InsomniacWriter', time: '3:22 AM', text: 'Been coming here for months. Consistent quality even at ungodly hours. The night shift knows my order by heart.', rating: 5 },
-      { user: 'GamerGirl', time: '12:30 AM', text: 'Power outlets everywhere! Perfect for my laptop setup. Gets a bit crowded with other night owls but that\'s kinda nice.', rating: 4 }
-    ],
-    4: [
-      { user: 'FitnessFreak', time: '2:00 AM', text: 'Love working out when it\'s empty. Equipment is always available and the place feels super safe with security cameras.', rating: 5 },
-      { user: 'ShiftWorker', time: '4:30 AM', text: 'Perfect for my schedule. Clean, well-lit, and never crowded at night. Exactly what I need after a long shift.', rating: 4 }
-    ]
-  };
-
-  const userPhotos = {
-    1: [
-      { url: 'diner-night.jpg', user: 'NightEater92', time: '2:15 AM', caption: 'Perfect late night vibes' },
-      { url: 'diner-booth.jpg', user: 'StudyBuddy', time: '12:30 AM', caption: 'Cozy booth for solo dining' }
-    ],
-    2: [
-      { url: 'coffee-study.jpg', user: 'CodingOwl', time: '1:45 AM', caption: 'My usual spot for coding' },
-      { url: 'coffee-latte.jpg', user: 'LateNightReader', time: '11:30 PM', caption: 'Perfect latte art even at midnight' },
-      { url: 'coffee-quiet.jpg', user: 'WriterLife', time: '3:00 AM', caption: 'So quiet you can hear yourself think' }
-    ],
-    4: [
-      { url: 'gym-empty.jpg', user: 'FitnessNight', time: '2:30 AM', caption: 'Whole place to myself!' },
-      { url: 'gym-weights.jpg', user: 'ShiftWorker', time: '4:00 AM', caption: 'Equipment always available' }
-    ]
-  };
-
   // Enhanced fetch ALL late-night businesses using Foursquare Places API
-  const fetchRealPlaces = async (lat, lng, radiusKm = 5) => {
+  const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
     setIsLoadingPlaces(true);
     
     // Check cache first
-    const cached = getCachedPlaces(lat, lng, radiusKm);
+    const cached = getCachedPlaces(lat, lng, radiusMiles);
     if (cached) {
       setRealBusinesses(cached);
       setIsLoadingPlaces(false);
@@ -460,7 +425,10 @@ const NightOwlsApp = () => {
     }
     
     try {
-      const radius = Math.min(radiusKm * 1000, 100000); // Max 100km
+      // FIXED: Convert miles to meters correctly for Foursquare API
+      const radiusMeters = Math.min(radiusMiles * 1609.34, 100000); // 1 mile = 1609.34 meters, max 100km
+      
+      console.log(`🌙 Searching ${radiusMiles} miles (${Math.round(radiusMeters)}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
       
       // Enhanced category list for ALL types of businesses
       const categories = [
@@ -504,12 +472,12 @@ const NightOwlsApp = () => {
 
       const url = `https://api.foursquare.com/v3/places/search?` + 
         `ll=${lat},${lng}&` +
-        `radius=${radius}&` +
+        `radius=${radiusMeters}&` +
         `categories=${categories}&` +
         `limit=50&` +
         `fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity,hours_popular`;
 
-      console.log('🌙 Searching for ALL late night places:', { lat: lat.toFixed(4), lng: lng.toFixed(4), radius: radiusKm });
+      console.log(`📍 Foursquare API call: ${url.replace(FOURSQUARE_API_KEY, 'API_KEY')}`);
 
       const response = await fetch(url, {
         headers: {
@@ -543,13 +511,15 @@ const NightOwlsApp = () => {
       const data = await response.json();
       console.log(`🔍 Found ${data.results.length} total businesses from Foursquare`);
       
-      // MUCH MORE INCLUSIVE: Process ALL businesses, just sort by late night relevance
+      // FIXED: Process ALL businesses, just sort by late night relevance
       const businesses = data.results
         .map((place, index) => {
           const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
           
-          // Skip if outside radius
-          if (distance > radiusKm) return null;
+          console.log(`📏 ${place.name}: ${distance.toFixed(1)} miles from search center`);
+          
+          // REMOVED: No server-side radius filtering since Foursquare already handles this
+          // The client-side filter will handle any radius preferences
           
           const category = getCategoryFromFoursquare(place.categories);
           
@@ -559,7 +529,7 @@ const NightOwlsApp = () => {
           // Calculate night owl score for sorting (NOT filtering)
           const nightOwlScore = calculateNightOwlScore(place, category, isLateNight);
           
-          // NO FILTERING - Include ALL businesses that match categories
+          console.log(`✅ Adding ${place.name} - ${distance.toFixed(1)}mi, category: ${category}, score: ${nightOwlScore}`);
 
           return {
             id: place.fsq_id,
@@ -577,7 +547,7 @@ const NightOwlsApp = () => {
             x: 150 + (index * 30) % 200,
             y: 100 + (index * 25) % 150,
             rideShareTime: `${Math.ceil(distance * 3)} min`,
-            rideShareCost: `$${Math.ceil(distance * 2.5 + 8)}`,
+            rideShareCost: `${Math.ceil(distance * 2.5 + 8)}`,
             lastReported: `${Math.floor(Math.random() * 120)} min ago`,
             reportedOpen: true,
             walkTime: `${Math.ceil(distance * 20)} min`,
@@ -593,7 +563,7 @@ const NightOwlsApp = () => {
             nightOwlScore
           };
         })
-        .filter(Boolean) // Only remove null entries (outside radius)
+        .filter(Boolean) // Only remove null entries
         .sort((a, b) => {
           // Sort by night owl score first (higher scores first), then distance
           if (b.nightOwlScore !== a.nightOwlScore) {
@@ -603,18 +573,17 @@ const NightOwlsApp = () => {
         });
 
       // Cache the results
-      setCachedPlaces(lat, lng, radiusKm, businesses);
+      setCachedPlaces(lat, lng, radiusMiles, businesses);
       setRealBusinesses(businesses);
       
-      console.log(`✅ Loaded ${businesses.length} businesses (sorted by late night relevance)`);
+      console.log(`✅ Processed ${businesses.length} businesses from Foursquare`);
+      console.log(`📊 Distance range: ${Math.min(...businesses.map(b => b.distanceValue)).toFixed(1)} - ${Math.max(...businesses.map(b => b.distanceValue)).toFixed(1)} miles`);
       
     } catch (error) {
       console.error('❌ Foursquare API Error:', error.message);
       
       // User-friendly error handling
-      if (typeof window !== 'undefined') {
-        console.warn('Using demo data due to API error');
-      }
+      console.warn('Using demo data due to API error');
       
       // Fallback to empty array (will show demo data)
       setRealBusinesses([]);
@@ -778,33 +747,6 @@ const NightOwlsApp = () => {
     window.open(url, '_blank');
   };
 
-  // Persistent storage functions
-  const saveFavorite = (businessId) => {
-    if (typeof window !== 'undefined') {
-      const favorites = JSON.parse(localStorage.getItem('nightowls_favorites') || '[]');
-      if (!favorites.includes(businessId)) {
-        favorites.push(businessId);
-        localStorage.setItem('nightowls_favorites', JSON.stringify(favorites));
-      }
-    }
-  };
-
-  const removeFavorite = (businessId) => {
-    if (typeof window !== 'undefined') {
-      const favorites = JSON.parse(localStorage.getItem('nightowls_favorites') || '[]');
-      const updated = favorites.filter(id => id !== businessId);
-      localStorage.setItem('nightowls_favorites', JSON.stringify(updated));
-    }
-  };
-
-  const saveSearchHistory = (query) => {
-    if (typeof window !== 'undefined') {
-      const history = JSON.parse(localStorage.getItem('nightowls_history') || '[]');
-      history.unshift({ query, timestamp: Date.now() });
-      localStorage.setItem('nightowls_history', JSON.stringify(history.slice(0, 50)));
-    }
-  };
-
   // Enhanced location change handler with geocoding
   const handleLocationChange = async (newLocation) => {
     setShowLocationSearch(false);
@@ -841,9 +783,24 @@ const NightOwlsApp = () => {
     const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
     const matchesSearch = business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          business.address.toLowerCase().includes(searchQuery.toLowerCase());
-    const withinRadius = business.distanceValue <= searchRadius;
-    return matchesCategory && matchesSearch && withinRadius;
+    
+    // REMOVED: radius filtering since Foursquare API already handles this
+    // const withinRadius = business.distanceValue <= searchRadius;
+    
+    // Debug logging for filtering
+    if (!matchesCategory) {
+      console.log(`❌ ${business.name} filtered out by category: ${business.category} != ${selectedCategory}`);
+    }
+    if (!matchesSearch && searchQuery) {
+      console.log(`❌ ${business.name} filtered out by search: "${searchQuery}"`);
+    }
+    
+    return matchesCategory && matchesSearch;
   });
+  
+  // Debug the filtering results
+  console.log(`🔍 Filtering results: ${allBusinesses.length} total → ${filteredBusinesses.length} displayed`);
+  console.log(`📊 Category: ${selectedCategory}, Search: "${searchQuery}", Radius: ${searchRadius}mi`);
 
   const getCrowdColor = (level) => {
     switch(level) {
@@ -868,33 +825,17 @@ const NightOwlsApp = () => {
     const newFavorites = new Set(favorites);
     if (newFavorites.has(businessId)) {
       newFavorites.delete(businessId);
-      removeFavorite(businessId);
     } else {
       newFavorites.add(businessId);
-      saveFavorite(businessId);
     }
     setFavorites(newFavorites);
   };
 
   const handleSearch = (query) => {
     setSearchQuery(query);
-    if (query.trim()) {
-      saveSearchHistory(query);
-    }
   };
 
   const handleReport = (businessId, isOpen) => {
-    // Save report to localStorage for persistence
-    if (typeof window !== 'undefined') {
-      const reports = JSON.parse(localStorage.getItem('nightowls_reports') || '{}');
-      reports[businessId] = {
-        isOpen,
-        timestamp: Date.now(),
-        reporter: 'user'
-      };
-      localStorage.setItem('nightowls_reports', JSON.stringify(reports));
-    }
-    
     setReportModal(null);
     console.log(`Reported ${businessId} as ${isOpen ? 'open' : 'closed'}`);
   };
@@ -925,38 +866,22 @@ const NightOwlsApp = () => {
     }
   };
 
-  const getCategoryColor = (category) => {
-    const colors = {
-      food: '#f59e0b',
-      coffee: '#8b5cf6',
-      gas: '#ef4444',
-      pharmacy: '#10b981',
-      grocery: '#3b82f6',
-      gym: '#f97316',
-      entertainment: '#ec4899',
-      services: '#06b6d4'
-    };
-    return colors[category] || '#6b7280';
-  };
-
   // Initialize app with real location and fetch places
   useEffect(() => {
+    // Try to get current location on startup
     getCurrentLocation();
-    // Load favorites from storage
-    if (typeof window !== 'undefined') {
-      const savedFavorites = JSON.parse(localStorage.getItem('nightowls_favorites') || '[]');
-      setFavorites(new Set(savedFavorites));
-    }
   }, []);
 
-  // Enhanced fetch real places when location or radius changes
+  // FIXED: Fetch real places when location or radius changes
   useEffect(() => {
     if (userLocation && userLocation.lat && userLocation.lng) {
       // Check cache first, then fetch if needed
       const cached = getCachedPlaces(userLocation.lat, userLocation.lng, searchRadius);
       if (cached) {
+        console.log('📦 Using cached results');
         setRealBusinesses(cached);
       } else {
+        console.log(`🔍 Fetching new results for ${searchRadius} mile radius`);
         fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
       }
     }
@@ -1170,9 +1095,11 @@ const NightOwlsApp = () => {
               )}
             </div>
             <p className="text-sm text-gray-400 font-medium">
-              Within {searchRadius} miles of {searchLocation === 'Current Location' ? 'your location' : searchLocation} • Sorted by late night relevance
+              Found by Foursquare API • Sorted by late night relevance
+              {searchQuery && ` • Search: "${searchQuery}"`}
+              {selectedCategory !== 'all' && ` • Category: ${selectedCategory}`}
               {allBusinesses.length !== filteredBusinesses.length && 
-                ` • ${allBusinesses.length - filteredBusinesses.length} filtered out`
+                ` • ${allBusinesses.length - filteredBusinesses.length} filtered by search/category`
               }
             </p>
           </div>
@@ -1445,6 +1372,7 @@ const NightOwlsApp = () => {
           <div>✅ <span className="text-green-400">Working Now:</span> GPS • Navigation • Rideshare • Favorites • Reports • Location Search</div>
           <div>🌙 <span className="text-purple-400">All Businesses:</span> Shows ALL businesses sorted by late night relevance</div>
           <div>🚧 <span className="text-yellow-400">Coming Soon:</span> User Reviews • Photo Upload • Push Notifications • Enhanced Filters</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Category: {selectedCategory} • Search: "{searchQuery}" • Radius: {searchRadius}mi</div>
         </div>
       </div>
     </div>
