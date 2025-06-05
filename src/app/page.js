@@ -434,44 +434,15 @@ const NightOwlsApp = () => {
       console.log(`🌙 Using Foursquare API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
       console.log(`🌙 Searching ${radiusMiles} miles (${Math.round(radiusMeters)}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
       
-      // Enhanced category list for ALL types of businesses
+      // Simplified category list - using fewer categories to avoid 400 errors
       const categories = [
-        // Food & Dining (ALL restaurants and food)
         '13065', // Fast Food Restaurant
         '13025', // Restaurant  
-        '13003', // Bar (great for late night)
-        '13035', // Diner (classic late night)
-        '13145', // Taco Place
-        '13064', // Pizza Place
-        '13031', // Breakfast Spot
         '13032', // Coffee Shop
-        '13033', // Café
-        '13034', // Tea Room
-        '13009', // Burger Joint
-        '13199', // Sandwiches
-        '13302', // Chinese Restaurant
-        '13307', // Italian Restaurant
-        '13325', // Thai Restaurant
-        '13334', // Mexican Restaurant
-        
-        // Convenience & Essentials
-        '17043', // Convenience Store
-        '17051', // Supermarket
         '17069', // Gas Station
         '17097', // Pharmacy
-        
-        // Services & Entertainment  
-        '18021', // Gym
-        '17114', // ATM
-        '17115', // Bank
-        '10032', // Movie Theater
-        '10027', // Bowling Alley
-        '17050', // Laundromat
-        
-        // Specialty Late Night
-        '13385', // Donut Shop
-        '13383', // Ice Cream Shop
-        '13377'  // Bagel Shop
+        '17043', // Convenience Store
+        '18021'  // Gym
       ].join(',');
 
       const url = `https://api.foursquare.com/v3/places/search?` + 
@@ -479,22 +450,38 @@ const NightOwlsApp = () => {
         `radius=${radiusMeters}&` +
         `categories=${categories}&` +
         `limit=50&` +
-        `fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity,hours_popular`;
+        `fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
 
       console.log(`📍 Foursquare API call: ${url.replace(FOURSQUARE_API_KEY, 'API_KEY')}`);
 
       const response = await fetch(url, {
+        method: 'GET',
         headers: {
           'Authorization': FOURSQUARE_API_KEY,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         }
       });
 
-      // Enhanced error handling
+      // Enhanced error handling with response details
       if (!response.ok) {
         let errorMessage = `Foursquare API error: ${response.status}`;
         
+        // Try to get more details from response
+        try {
+          const errorData = await response.json();
+          console.error('📋 Full API error response:', errorData);
+          if (errorData.message) {
+            errorMessage += ` - ${errorData.message}`;
+          }
+        } catch (e) {
+          console.error('📋 Could not parse error response');
+        }
+        
         switch (response.status) {
+          case 400:
+            errorMessage = 'Bad request - check API parameters';
+            break;
           case 401:
             errorMessage = 'Invalid API key - please check your Foursquare configuration';
             break;
