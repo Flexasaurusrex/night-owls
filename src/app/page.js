@@ -141,8 +141,10 @@ const NightOwlsApp = () => {
     return Math.min(50, score);
   };
 
-  // Fetch places from API
+  // Fetch places from API - IMPROVED ERROR HANDLING
   const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
+    if (isLoadingPlaces) return; // Prevent multiple simultaneous calls
+    
     setIsLoadingPlaces(true);
     
     if (!FOURSQUARE_API_KEY) {
@@ -190,63 +192,82 @@ const NightOwlsApp = () => {
           const data = await response.json();
           console.log(`📋 Found ${data.results?.length || 0} ${categoryName} businesses`);
           
-          if (data.results && data.results.length > 0) {
+          if (data.results && Array.isArray(data.results) && data.results.length > 0) {
             for (const place of data.results) {
-              if (!place.location || !place.location.lat || !place.location.lng) {
+              try {
+                // Validate place data
+                if (!place?.location?.lat || !place?.location?.lng || !place?.name) {
+                  continue;
+                }
+
+                const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
+                if (distance > radiusMiles || isNaN(distance)) continue;
+                
+                const isActuallyLateNight = checkIfOpenLate(place.hours);
+                const lateNightInfo = analyzeLateNightHours(place.hours);
+                const rideEstimates = calculateRideShareEstimates(distance);
+
+                // Create business object with all required fields
+                const businessObj = {
+                  id: place.fsq_id || `temp-${Date.now()}-${Math.random()}`,
+                  name: place.name || 'Unknown Business',
+                  category: categoryName,
+                  address: formatAddress(place.location),
+                  distance: `${distance.toFixed(1)} miles`,
+                  distanceValue: distance,
+                  rating: place.rating ? Math.min(5, place.rating / 2) : 4.0,
+                  crowdLevel: 'Quiet',
+                  verified: true,
+                  safetyRating: calculateSafetyRating(place, categoryName),
+                  features: getBusinessFeatures(categoryName),
+                  hours: place.hours?.display || lateNightInfo.display || 'Hours not available',
+                  rideShareTime: rideEstimates.time,
+                  rideShareCost: rideEstimates.cost,
+                  lastReported: '30 min ago',
+                  reportedOpen: true,
+                  lateNightLevel: lateNightInfo.level || 'Check Hours',
+                  isActuallyLateNight: isActuallyLateNight || false,
+                  lateNightScore: calculateLateNightScore(place, categoryName, isActuallyLateNight, lateNightInfo)
+                };
+
+                allBusinesses.push(businessObj);
+              } catch (placeError) {
+                console.warn('Error processing place:', placeError);
                 continue;
               }
-
-              const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
-              if (distance > radiusMiles) continue;
-              
-              const isActuallyLateNight = checkIfOpenLate(place.hours);
-              const lateNightInfo = analyzeLateNightHours(place.hours);
-              const rideEstimates = calculateRideShareEstimates(distance);
-
-              allBusinesses.push({
-                id: place.fsq_id,
-                name: place.name,
-                category: categoryName,
-                address: formatAddress(place.location),
-                distance: `${distance.toFixed(1)} miles`,
-                distanceValue: distance,
-                rating: place.rating ? (place.rating / 2) : 4.0,
-                crowdLevel: 'Quiet',
-                verified: true,
-                safetyRating: calculateSafetyRating(place, categoryName),
-                features: getBusinessFeatures(categoryName),
-                hours: place.hours?.display || lateNightInfo.display,
-                rideShareTime: rideEstimates.time,
-                rideShareCost: rideEstimates.cost,
-                lastReported: '30 min ago',
-                reportedOpen: true,
-                lateNightLevel: lateNightInfo.level,
-                isActuallyLateNight,
-                lateNightScore: calculateLateNightScore(place, categoryName, isActuallyLateNight, lateNightInfo)
-              });
             }
           }
-        } catch (error) {
-          console.error(`❌ Error fetching ${categoryName}:`, error);
+        } catch (categoryError) {
+          console.error(`❌ Error fetching ${categoryName}:`, categoryError);
+          continue;
         }
+
+        // Add small delay between API calls to be respectful
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
+      // Sort businesses safely
       const sortedBusinesses = allBusinesses.sort((a, b) => {
-        if (b.lateNightScore !== a.lateNightScore) {
-          return b.lateNightScore - a.lateNightScore;
+        const scoreA = a.lateNightScore || 0;
+        const scoreB = b.lateNightScore || 0;
+        const distA = a.distanceValue || 999;
+        const distB = b.distanceValue || 999;
+        
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
         }
-        return a.distanceValue - b.distanceValue;
+        return distA - distB;
       });
 
-      setRealBusinesses(sortedBusinesses);
       console.log(`✅ Final result: ${sortedBusinesses.length} businesses`);
+      setRealBusinesses(sortedBusinesses);
       
     } catch (error) {
-      console.error('❌ API Error:', error.message);
-      setRealBusinesses([]);
+      console.error('❌ API Error:', error);
+      setRealBusinesses([]); // Clear any partial data
+    } finally {
+      setIsLoadingPlaces(false);
     }
-    
-    setIsLoadingPlaces(false);
   };
 
   // Get user location
@@ -321,13 +342,20 @@ const NightOwlsApp = () => {
     { id: 'gym', name: 'Gym', icon: Dumbbell }
   ];
 
-  // Use real businesses when available
-  const allBusinesses = realBusinesses.length > 0 ? realBusinesses : businesses;
+  // Use real businesses when available - SAFER FILTERING
+  const allBusinesses = Array.isArray(realBusinesses) && realBusinesses.length > 0 ? realBusinesses : businesses;
   
   const filteredBusinesses = allBusinesses.filter(business => {
-    const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
-    const matchesSearch = business.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    try {
+      if (!business || typeof business !== 'object') return false;
+      
+      const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
+      const matchesSearch = business.name && business.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    } catch (error) {
+      console.warn('Error filtering business:', error);
+      return false;
+    }
   });
 
   const getCrowdColor = (level) => {
@@ -355,16 +383,17 @@ const NightOwlsApp = () => {
     setFavorites(newFavorites);
   };
 
-  // Effects
+  // Effects - FIXED to prevent infinite loops
   useEffect(() => {
     getCurrentLocation();
-  }, []);
+  }, []); // Only run once on mount
 
   useEffect(() => {
-    if (userLocation && userLocation.lat && userLocation.lng) {
+    if (userLocation?.lat && userLocation?.lng && !isLoadingLocation) {
+      console.log('🔄 Fetching places for location:', userLocation, 'radius:', searchRadius);
       fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
     }
-  }, [userLocation, searchRadius]);
+  }, [userLocation?.lat, userLocation?.lng, searchRadius]); // Only depend on specific values
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -477,7 +506,19 @@ const NightOwlsApp = () => {
                 <span className="text-base">{category.name}</span>
               </button>
             );
-          })}
+          {!isLoadingPlaces && userLocation && filteredBusinesses.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🔍</div>
+            <h3 className="text-xl font-bold text-white mb-2">No businesses found</h3>
+            <p className="text-gray-400 mb-6">Try expanding your search radius or changing categories</p>
+            <button
+              onClick={() => setSearchRadius(searchRadius < 100 ? searchRadius * 2 : 100)}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all"
+            >
+              🔍 Expand Search to {searchRadius < 100 ? searchRadius * 2 : 100} miles
+            </button>
+          </div>
+        )}
         </div>
       </div>
 
@@ -526,114 +567,122 @@ const NightOwlsApp = () => {
           </div>
         )}
 
-        {filteredBusinesses.map((business) => (
-          <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex-1 pr-4">
-                <div className="flex items-center space-x-3 mb-3">
-                  <h3 className="font-bold text-xl text-white">{business.name}</h3>
-                  {business.verified && (
-                    <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg" title="Verified Open"></div>
-                  )}
-                  {business.lateNightLevel && (
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white">
-                      {business.lateNightLevel}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
-                  <MapPin size={18} />
-                  <span className="font-medium">{business.address} • {business.distance}</span>
-                </div>
-                
-                <div className="flex items-center space-x-6 mb-4">
-                  <div className="flex items-center space-x-2">
-                    <Users size={18} className="text-gray-500" />
-                    <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
-                      {business.crowdLevel}
-                    </span>
+        {filteredBusinesses.length > 0 && filteredBusinesses.map((business) => {
+          // Safety check for business object
+          if (!business || !business.id || !business.name) {
+            return null;
+          }
+          
+          return (
+            <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg">
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex-1 pr-4">
+                  <div className="flex items-center space-x-3 mb-3">
+                    <h3 className="font-bold text-xl text-white">{business.name || 'Unknown Business'}</h3>
+                    {business.verified && (
+                      <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg" title="Verified Open"></div>
+                    )}
+                    {business.lateNightLevel && (
+                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white">
+                        {business.lateNightLevel}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Star size={18} className="fill-yellow-400 text-yellow-400" />
-                    <span className="text-base font-bold text-gray-200">{business.rating}</span>
+                  <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
+                    <MapPin size={18} />
+                    <span className="font-medium">{business.address || 'Address not available'} • {business.distance || 'Distance unknown'}</span>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <span className="text-sm text-gray-500 font-medium">Safety:</span>
-                    <div className="flex space-x-1">
-                      {getSafetyStars(business.safetyRating)}
+                  
+                  <div className="flex items-center space-x-6 mb-4">
+                    <div className="flex items-center space-x-2">
+                      <Users size={18} className="text-gray-500" />
+                      <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel || 'Quiet')}`}>
+                        {business.crowdLevel || 'Quiet'}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Star size={18} className="fill-yellow-400 text-yellow-400" />
+                      <span className="text-base font-bold text-gray-200">{business.rating || 4.0}</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <span className="text-sm text-gray-500 font-medium">Safety:</span>
+                      <div className="flex space-x-1">
+                        {getSafetyStars(business.safetyRating || 3)}
+                      </div>
                     </div>
                   </div>
                 </div>
+                
+                <button
+                  onClick={() => toggleFavorite(business.id)}
+                  className={`p-3 rounded-full transition-all ${
+                    favorites.has(business.id) 
+                      ? 'text-red-400 bg-red-900/20' 
+                      : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
+                  }`}
+                >
+                  <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
+                </button>
               </div>
-              
-              <button
-                onClick={() => toggleFavorite(business.id)}
-                className={`p-3 rounded-full transition-all ${
-                  favorites.has(business.id) 
-                    ? 'text-red-400 bg-red-900/20' 
-                    : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
-                }`}
-              >
-                <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
-              </button>
-            </div>
 
-            {/* Ride Share */}
-            <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Car size={20} className="text-purple-400" />
-                  <div>
-                    <span className="text-base font-semibold text-gray-200 block">Ride there</span>
-                    <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
+              {/* Ride Share */}
+              <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Car size={20} className="text-purple-400" />
+                    <div>
+                      <span className="text-base font-semibold text-gray-200 block">Ride there</span>
+                      <span className="text-sm text-gray-400 font-medium">{business.rideShareTime || '5 min'} • {business.rideShareCost || '$8'}</span>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button 
+                      onClick={() => bookUberRide(business)}
+                      className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700"
+                    >
+                      Uber
+                    </button>
+                    <button 
+                      onClick={() => bookLyftRide(business)}
+                      className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+                    >
+                      Lyft
+                    </button>
                   </div>
                 </div>
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={() => bookUberRide(business)}
-                    className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700"
-                  >
-                    Uber
-                  </button>
-                  <button 
-                    onClick={() => bookLyftRide(business)}
-                    className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-                  >
-                    Lyft
-                  </button>
-                </div>
+              </div>
+
+              {/* Features */}
+              <div className="flex flex-wrap gap-2 mb-5">
+                {Array.isArray(business.features) && business.features.map((feature, index) => (
+                  <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
+                    {feature}
+                  </span>
+                ))}
+              </div>
+
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => openInGoogleMaps(business)}
+                  className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg"
+                >
+                  <Navigation size={16} />
+                  <span>Navigate</span>
+                </button>
+                
+                <button
+                  onClick={() => setReportModal(business)}
+                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
+                >
+                  <AlertTriangle size={16} />
+                  <span>Report</span>
+                </button>
               </div>
             </div>
-
-            {/* Features */}
-            <div className="flex flex-wrap gap-2 mb-5">
-              {business.features.map((feature, index) => (
-                <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
-                  {feature}
-                </span>
-              ))}
-            </div>
-
-            {/* Action buttons */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => openInGoogleMaps(business)}
-                className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg"
-              >
-                <Navigation size={16} />
-                <span>Navigate</span>
-              </button>
-              
-              <button
-                onClick={() => setReportModal(business)}
-                className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
-              >
-                <AlertTriangle size={16} />
-                <span>Report</span>
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
+      </div>
       </div>
 
       {/* Report Modal */}
@@ -715,7 +764,7 @@ const NightOwlsApp = () => {
       <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
         <div className="text-xs text-gray-500 space-y-2">
           <div>✅ <span className="text-green-400">Working:</span> GPS • Navigation • Rideshare • Favorites • Reports</div>
-          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Radius: {searchRadius}mi</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {Array.isArray(realBusinesses) ? realBusinesses.length : 0} • Displayed: {Array.isArray(filteredBusinesses) ? filteredBusinesses.length : 0} • Radius: {searchRadius}mi</div>
           <div>📍 <span className="text-purple-400">Location:</span> {userLocation ? `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}` : 'Not set'}</div>
         </div>
       </div>
