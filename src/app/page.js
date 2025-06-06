@@ -1,4 +1,103 @@
-'use client';
+// FIXED: Enhanced API function with radius limits and better error handling
+  const fetchRealPlaces = async (lat, lng, radiusMiles = 5, useCache = true) => {
+    const cacheKey = getCacheKey(lat, lng, radiusMiles);
+    
+    // Check cache first
+    if (useCache) {
+      const cached = placesCache.get(cacheKey);
+      if (isCacheValid(cached)) {
+        console.log('📋 Using cached data');
+        setRealBusinesses(cached.data);
+        return;
+      }
+    }
+    
+    setIsLoadingPlaces(true);
+    
+    if (!FOURSQUARE_API_KEY) {
+      console.log('❌ No API key');
+      setIsLoadingPlaces(false);
+      return;
+    }
+    
+    // FIXED: Enforce Foursquare API radius limits (capped at 50 miles)
+    const maxRadius = 50;
+    if (radiusMiles > maxRadius) {
+      radiusMiles = maxRadius;
+    }
+    
+    try {
+      const radiusMeters = Math.round(radiusMiles * 1609.34);
+      
+      console.log(`🌙 Searching ${radiusMiles} miles around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      
+      // Enhanced category mappings
+      const categoryQueries = {
+        food: '13065,13025,13003,13035,13145,13064,13009,13199,13383', 
+        coffee: '13032,13033,13034,13385,13387', 
+        gas: '17069', 
+        pharmacy: '17097', 
+        grocery: '17043,17051', 
+        gym: '18021,18022', 
+        services: '17114,17115,17050,17052',
+        entertainment: '10032,10027,10028'
+      };
+
+      const allBusinesses = [];
+      
+      // Search each category with enhanced error handling
+      for (const [categoryName, categoryIds] of Object.entries(categoryQueries)) {
+        console.log(`🔍 Searching ${categoryName}...`);
+        
+        const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categoryIds}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
+
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': FOURSQUARE_API_KEY,
+              'Accept': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            // ENHANCED: Better error logging
+            let errorMessage = `${response.status} ${response.statusText}`;
+            try {
+              const errorData = await response.text();
+              console.error(`❌ API error for ${categoryName}: ${errorMessage}`, errorData);
+            } catch {
+              console.error(`❌ API error for ${categoryName}: ${errorMessage}`);
+            }
+            continue;
+          }
+
+          const data = await response.json();
+          console.log(`📋 Found ${data.results?.length || 0} ${categoryName} businesses`);
+          
+          if (!data.results) continue;
+          
+          // Process each business with enhanced data
+          for (const place of data.results) {
+            // FIXED: Better validation for coordinates
+            if (!place.location || typeof place.location.lat !== 'number' || typeof place.location.lng !== 'number') {
+              console.log('Invalid location data for:', place.name);
+              continue;
+            }
+            
+            const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
+            
+            // FIXED: Validate distance calculation
+            if (isNaN(distance) || distance < 0 || distance > radiusMiles) {
+              console.log('Invalid distance calculated for:', place.name, distance);
+              continue;
+            }
+            
+            const isActuallyLateNight = checkIfOpenLate(place.hours);
+            const lateNightInfo = analyzeLateNightHours(place.hours);
+            
+            const knownLateNightChains = [
+              '7-eleven', 'circle k'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, MapPin, Clock, Users, Star, Navigation, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell, MessageSquare, Phone, RefreshCw, Camera, ExternalLink } from 'lucide-react';
@@ -191,9 +290,19 @@ const NightOwlsApp = () => {
           
           // Process each business with enhanced data
           for (const place of data.results) {
+            // FIXED: Better validation for coordinates
+            if (!place.location || typeof place.location.lat !== 'number' || typeof place.location.lng !== 'number') {
+              console.log('Invalid location data for:', place.name);
+              continue;
+            }
+            
             const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
             
-            if (distance > radiusMiles) continue;
+            // FIXED: Validate distance calculation
+            if (isNaN(distance) || distance < 0 || distance > radiusMiles) {
+              console.log('Invalid distance calculated for:', place.name, distance);
+              continue;
+            }
             
             const isActuallyLateNight = checkIfOpenLate(place.hours);
             const lateNightInfo = analyzeLateNightHours(place.hours);
@@ -222,7 +331,8 @@ const NightOwlsApp = () => {
             // FIXED: Proper ride share calculations
             const rideShareInfo = calculateRideShareInfo(distance);
             
-            // NEW: Get today's specific hours
+            // FIXED: Better hours parsing with validation and debugging
+            console.log(`📋 Processing hours for ${place.name}:`, place.hours);
             const todaysHours = getTodaysHours(place.hours);
 
             allBusinesses.push({
@@ -232,13 +342,13 @@ const NightOwlsApp = () => {
               address: formatAddress(place.location),
               distance: `${distance.toFixed(1)} mi`,
               distanceValue: distance,
-              rating: place.rating ? (place.rating / 2) : 4.0,
+              rating: place.rating ? Math.max(1, Math.min(5, place.rating / 2)) : 4.0, // Ensure valid rating
               crowdLevel: 'Quiet',
               verified: true,
               safetyRating: calculateSafetyRating(place, categoryName),
               features: getBusinessFeatures(categoryName),
               hours: place.hours?.display || lateNightInfo.display,
-              todaysHours: todaysHours, // NEW: Today's specific hours
+              todaysHours: todaysHours, // Today's specific hours with better validation
               rideShareTime: rideShareInfo.time,
               rideShareCost: rideShareInfo.cost,
               lastReported: '30 min ago',
@@ -281,111 +391,155 @@ const NightOwlsApp = () => {
     setIsLoadingPlaces(false);
   };
 
-  // Check if business is open late
+  // FIXED: Much more lenient late night detection
   const checkIfOpenLate = (hoursData) => {
-    if (!hoursData || !hoursData.regular) return false;
+    if (!hoursData) return false;
     
-    try {
-      for (const daySchedule of hoursData.regular) {
-        if (daySchedule.open) {
-          for (const timeSlot of daySchedule.open) {
-            const endTime = parseInt(timeSlot.end);
-            if (endTime <= 600 && endTime < parseInt(timeSlot.start)) {
-              return true;
-            }
-            if (endTime >= 200 && endTime <= 600) {
-              return true;
+    // Check display string for any late night indicators
+    const display = hoursData.display || '';
+    const displayLower = display.toLowerCase();
+    
+    // Much more inclusive late night detection
+    if (displayLower.includes('24') || 
+        displayLower.includes('24/7') || 
+        displayLower.includes('24 hours') ||
+        displayLower.includes('24-hour') ||
+        displayLower.includes('always open') ||
+        displayLower.includes('open 24') ||
+        displayLower.includes('24hr') ||
+        displayLower.includes('midnight') ||
+        displayLower.includes('1:00 am') ||
+        displayLower.includes('1 am') ||
+        displayLower.includes('2:00 am') ||
+        displayLower.includes('2 am') ||
+        displayLower.includes('3:00 am') ||
+        displayLower.includes('3 am')) {
+      return true;
+    }
+    
+    // Check structured hours data
+    if (hoursData.regular) {
+      try {
+        for (const daySchedule of hoursData.regular) {
+          if (daySchedule.open) {
+            for (const timeSlot of daySchedule.open) {
+              const startTime = parseInt(timeSlot.start);
+              const endTime = parseInt(timeSlot.end);
+              
+              // 24/7 places (end time wraps to next day)
+              if (endTime < startTime) {
+                return true;
+              }
+              
+              // Places open until midnight or later
+              if (endTime >= 0 && endTime <= 600) {
+                return true;
+              }
+              
+              // Places open until 11 PM or later (2300 = 11 PM)
+              if (endTime >= 2300) {
+                return true;
+              }
             }
           }
         }
+      } catch (error) {
+        console.log('Error parsing hours:', error);
       }
-    } catch (error) {
-      console.log('Error parsing hours:', error);
     }
     
     return false;
   };
 
-  // NEW: Get today's specific hours
+  // SIMPLIFIED: Get today's hours with better fallbacks
   const getTodaysHours = (hoursData) => {
     if (!hoursData) {
       return { status: 'unknown', display: 'Hours unknown', isOpen: false };
     }
 
-    // Check for 24/7 first
+    // PRIORITY 1: Check display string first (Foursquare often provides good formatted hours)
     const display = hoursData.display || '';
     const displayLower = display.toLowerCase();
     
+    // Check for 24/7 indicators
     if (displayLower.includes('24 hours') || displayLower.includes('24/7') || displayLower.includes('always open')) {
       return { status: '24/7', display: 'Open 24/7', isOpen: true };
     }
+    
+    // Check for late night indicators in display
+    if (displayLower.includes('2:00 am') || displayLower.includes('2 am') || 
+        displayLower.includes('3:00 am') || displayLower.includes('3 am') ||
+        displayLower.includes('1:00 am') || displayLower.includes('1 am')) {
+      return { status: 'late', display: display, isOpen: true };
+    }
+    
+    // If we have a good display string, use it directly
+    if (display && display.length > 0 && !display.toLowerCase().includes('unknown')) {
+      return { status: 'display', display: display, isOpen: true };
+    }
 
-    // Get current day (0 = Sunday, 1 = Monday, etc.)
+    // PRIORITY 2: Try to parse structured data only if no display string
     const today = new Date().getDay();
     
     if (hoursData.regular && hoursData.regular.length > 0) {
       try {
-        // Find today's schedule
         const todaySchedule = hoursData.regular.find(day => day.day === today);
         
         if (!todaySchedule || !todaySchedule.open || todaySchedule.open.length === 0) {
           return { status: 'closed', display: 'Closed today', isOpen: false };
         }
 
-        // Get the first (usually main) time slot for today
         const timeSlot = todaySchedule.open[0];
-        const startTime = parseInt(timeSlot.start);
-        const endTime = parseInt(timeSlot.end);
-
-        // Format times
-        const formatTime = (time) => {
-          const hours = Math.floor(time / 100);
-          const minutes = time % 100;
-          const period = hours >= 12 ? 'PM' : 'AM';
-          const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-          const displayMinutes = minutes === 0 ? '' : `:${minutes.toString().padStart(2, '0')}`;
-          return `${displayHours}${displayMinutes} ${period}`;
-        };
-
-        // Handle overnight hours (end time is next day)
-        if (endTime < startTime) {
-          return { 
-            status: 'overnight', 
-            display: `Until ${formatTime(endTime)} (next day)`, 
-            isOpen: true 
-          };
+        
+        if (!timeSlot || !timeSlot.start || !timeSlot.end) {
+          return { status: 'unknown', display: 'Check hours', isOpen: true };
         }
 
-        // Handle late night (2 AM or later)
-        if (endTime >= 200 && endTime <= 600) {
-          return { 
-            status: 'late', 
-            display: `Until ${formatTime(endTime)}`, 
-            isOpen: true 
-          };
+        // Simple validation - if it looks like valid time data
+        const startStr = timeSlot.start.toString();
+        const endStr = timeSlot.end.toString();
+        
+        if (startStr.length >= 3 && endStr.length >= 3) {
+          const startTime = parseInt(startStr);
+          const endTime = parseInt(endStr);
+          
+          if (!isNaN(startTime) && !isNaN(endTime) && startTime >= 0 && endTime >= 0) {
+            // Basic time formatting
+            const formatSimpleTime = (time) => {
+              const hours = Math.floor(time / 100);
+              const minutes = time % 100;
+              if (hours <= 24 && minutes <= 59) {
+                const period = hours >= 12 ? 'PM' : 'AM';
+                const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+                return `${displayHours}${minutes === 0 ? '' : ':' + minutes.toString().padStart(2, '0')} ${period}`;
+              }
+              return null;
+            };
+            
+            const formattedStart = formatSimpleTime(startTime);
+            const formattedEnd = formatSimpleTime(endTime);
+            
+            if (formattedStart && formattedEnd) {
+              if (endTime < startTime) {
+                return { status: 'overnight', display: `Until ${formattedEnd} (next day)`, isOpen: true };
+              } else if (endTime >= 200 && endTime <= 600) {
+                return { status: 'late', display: `Until ${formattedEnd}`, isOpen: true };
+              } else {
+                return { status: 'regular', display: `${formattedStart} - ${formattedEnd}`, isOpen: true };
+              }
+            }
+          }
         }
-
-        // Regular hours
-        return { 
-          status: 'regular', 
-          display: `${formatTime(startTime)} - ${formatTime(endTime)}`, 
-          isOpen: true 
-        };
-
       } catch (error) {
-        console.log('Error parsing today\'s hours:', error);
+        console.log('Error parsing structured hours for business:', error);
       }
     }
 
-    // Fallback to display string
-    if (display) {
-      return { status: 'display', display: display, isOpen: true };
-    }
-
-    return { status: 'unknown', display: 'Hours unknown', isOpen: false };
+    // FINAL FALLBACK
+    return { status: 'unknown', display: 'Check hours', isOpen: true };
   };
 
-  // Analyze late night hours
+  // MUCH MORE LENIENT: Late night hour analysis
   const analyzeLateNightHours = (hoursData) => {
     if (!hoursData) {
       return { level: 'Check Hours', status: 'Hours unknown', display: 'Check hours' };
@@ -394,18 +548,33 @@ const NightOwlsApp = () => {
     const display = hoursData.display || '';
     const displayLower = display.toLowerCase();
     
-    if (displayLower.includes('24 hours') || displayLower.includes('24/7') || displayLower.includes('always open')) {
+    // Much more inclusive 24/7 detection
+    if (displayLower.includes('24 hours') || 
+        displayLower.includes('24/7') || 
+        displayLower.includes('always open') ||
+        displayLower.includes('open 24') ||
+        displayLower.includes('24hr') ||
+        displayLower.includes('24-hour')) {
       return { level: '24/7', status: 'Open 24/7', display: '24/7' };
     }
     
-    if (displayLower.includes('2:00 am') || displayLower.includes('2 am') || displayLower.includes('3:00 am') || displayLower.includes('3 am')) {
-      return { level: 'Open Very Late', status: 'Open until 2-3 AM', display };
+    // Late night detection (much more inclusive)
+    if (displayLower.includes('2:00 am') || displayLower.includes('2 am') || 
+        displayLower.includes('3:00 am') || displayLower.includes('3 am') ||
+        displayLower.includes('4:00 am') || displayLower.includes('4 am') ||
+        displayLower.includes('1:00 am') || displayLower.includes('1 am') ||
+        displayLower.includes('midnight') ||
+        displayLower.includes('12:00 am') || displayLower.includes('12 am')) {
+      return { level: 'Open Very Late', status: 'Open very late', display };
     }
     
-    if (displayLower.includes('1:00 am') || displayLower.includes('1 am') || displayLower.includes('midnight')) {
-      return { level: 'Open Late', status: 'Open until midnight-1 AM', display };
+    // Even 11 PM counts as late for our purposes
+    if (displayLower.includes('11:00 pm') || displayLower.includes('11 pm') ||
+        displayLower.includes('10:00 pm') || displayLower.includes('10 pm')) {
+      return { level: 'Open Late', status: 'Open late', display };
     }
     
+    // Check structured hours with more lenient criteria
     if (hoursData.regular) {
       try {
         let latestEnd = 0;
@@ -417,11 +586,18 @@ const NightOwlsApp = () => {
               const startTime = parseInt(timeSlot.start);
               const endTime = parseInt(timeSlot.end);
               
+              // Check for 24/7 (end time wraps to next day)
               if (endTime < startTime) {
                 is24Hour = true;
               }
               
-              if (endTime >= 200 && endTime <= 600) {
+              // Track latest closing time (much more inclusive)
+              if (endTime >= 0 && endTime <= 600) {
+                latestEnd = Math.max(latestEnd, endTime);
+              }
+              
+              // Also consider late evening closings
+              if (endTime >= 2200) { // 10 PM or later
                 latestEnd = Math.max(latestEnd, endTime);
               }
             }
@@ -432,19 +608,35 @@ const NightOwlsApp = () => {
           return { level: '24/7', status: 'Open 24/7', display: '24 hours' };
         }
         
-        if (latestEnd >= 300) {
-          return { level: 'Open Very Late', status: 'Open until 3+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
+        if (latestEnd >= 200) {
+          const hours = Math.floor(latestEnd/100);
+          const mins = latestEnd % 100;
+          return { 
+            level: 'Open Very Late', 
+            status: 'Open very late', 
+            display: `Until ${hours === 0 ? 12 : hours > 12 ? hours - 12 : hours}:${mins.toString().padStart(2, '0')} ${hours >= 12 ? 'AM' : 'PM'}` 
+          };
         }
         
-        if (latestEnd >= 200) {
-          return { level: 'Open Late', status: 'Open until 2+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
+        if (latestEnd >= 2200) {
+          const hours = Math.floor(latestEnd/100);
+          return { 
+            level: 'Open Late', 
+            status: 'Open late', 
+            display: `Until ${hours > 12 ? hours - 12 : hours}:00 PM` 
+          };
         }
       } catch (error) {
         console.log('Error analyzing structured hours:', error);
       }
     }
     
-    return { level: 'Check Hours', status: 'Hours unknown', display: display || 'Check hours' };
+    // If we have any display string, it's probably worth including
+    if (display && display.length > 0) {
+      return { level: 'Open Late', status: 'Check hours', display: display };
+    }
+    
+    return { level: 'Check Hours', status: 'Hours unknown', display: 'Check hours' };
   };
 
   // Calculate late night score
@@ -753,7 +945,7 @@ const NightOwlsApp = () => {
               )}
             </div>
 
-            {/* EXPANDED: Radius up to 100 miles */}
+            {/* FIXED: Radius capped at 50 miles (Foursquare API limit) */}
             <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
               <span className="text-base font-semibold text-gray-300">Search Radius</span>
               <select
@@ -767,9 +959,7 @@ const NightOwlsApp = () => {
                 <option value={10}>10 miles</option>
                 <option value={15}>15 miles</option>
                 <option value={25}>25 miles</option>
-                <option value={50}>50 miles</option>
-                <option value={75}>75 miles</option>
-                <option value={100}>100 miles</option>
+                <option value={50}>50 miles (max)</option>
               </select>
             </div>
           </div>
@@ -1135,8 +1325,8 @@ const NightOwlsApp = () => {
       <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
         <div className="text-xs text-gray-500 space-y-2">
           <div>✅ <span className="text-green-400">Working:</span> GPS • Navigation • Rideshare • Favorites • Reports • Call • Cache</div>
-          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Radius: {searchRadius}mi • Cache: {placesCache.size} entries</div>
-          <div>📱 <span className="text-purple-400">Enhanced:</span> Skeleton Loading • Refresh • Call Feature • 100mi Range • Fixed Rideshare</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Radius: {searchRadius}mi (max 50) • Cache: {placesCache.size} entries</div>
+          <div>📱 <span className="text-purple-400">Enhanced:</span> MUCH More Lenient Filtering • Fixed Hours Display • 50mi Max Range</div>
         </div>
       </div>
     </div>
