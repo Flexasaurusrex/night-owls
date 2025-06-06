@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Clock, Users, Star, Navigation, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell, MessageSquare } from 'lucide-react';
+import { Search, MapPin, Clock, Users, Star, Navigation, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell } from 'lucide-react';
 
 const NightOwlsApp = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -15,7 +15,7 @@ const NightOwlsApp = () => {
   const [realBusinesses, setRealBusinesses] = useState([]);
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
 
-  // FOURSQUARE API KEY - WORKING VERSION
+  // FOURSQUARE API KEY
   const FOURSQUARE_API_KEY = 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
 
   // Distance calculation
@@ -36,34 +36,22 @@ const NightOwlsApp = () => {
     return parts.join(', ') || 'Address not available';
   };
 
-  // UPDATED: Better safety rating calculation
+  // Calculate safety rating
   const calculateSafetyRating = (place, category) => {
-    let safety = 3; // Base safety
-    
-    // Higher rated places tend to be safer
+    let safety = 3;
     if (place.rating) {
-      const normalizedRating = place.rating / 2; // Convert 10-point to 5-point scale
+      const normalizedRating = place.rating / 2;
       if (normalizedRating > 4) safety += 1;
       if (normalizedRating > 4.5) safety += 1;
     }
-    
-    // Gas stations and pharmacies often have good lighting/security
     if (['gas', 'pharmacy'].includes(category)) safety += 1;
-    
-    // Chain businesses often have better security
     const businessName = place.name.toLowerCase();
-    const majorChains = [
-      'cvs', 'walgreens', 'rite aid', // Pharmacies
-      'shell', 'chevron', 'exxon', 'mobil', 'bp', // Gas
-      'mcdonalds', 'taco bell', 'dennys', 'ihop', // Food
-      '7-eleven', 'circle k', 'wawa' // Convenience
-    ];
+    const majorChains = ['cvs', 'walgreens', 'rite aid', 'shell', 'chevron', 'exxon', 'mobil', 'bp', 'mcdonalds', 'taco bell', 'dennys', 'ihop', '7-eleven', 'circle k', 'wawa'];
     if (majorChains.some(chain => businessName.includes(chain))) safety += 1;
-    
     return Math.min(5, Math.max(1, safety));
   };
 
-  // UPDATED: Better business features based on category
+  // Get business features
   const getBusinessFeatures = (category) => {
     const features = {
       food: ['Late Night Menu', 'Drive-thru', 'Well-lit', 'Security'],
@@ -78,200 +66,41 @@ const NightOwlsApp = () => {
     return features[category] || features.services;
   };
 
-  // FIXED: Calculate ride share estimates properly
+  // Calculate ride share estimates
   const calculateRideShareEstimates = (distance) => {
-    // distance is already in miles
-    const timeMinutes = Math.max(5, Math.ceil(distance * 2.5 + 3)); // More realistic time estimate
-    const costDollars = Math.max(8, Math.ceil(distance * 2.8 + 6)); // Base fare + per mile
-    
+    const timeMinutes = Math.max(5, Math.ceil(distance * 2.5 + 3));
+    const costDollars = Math.max(8, Math.ceil(distance * 2.8 + 6));
     return {
       time: `${timeMinutes} min`,
       cost: `$${costDollars}`
     };
   };
 
-  // MAIN API FUNCTION - SIMPLIFIED FOR CURRENT LOCATION ONLY
-  const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
-    setIsLoadingPlaces(true);
-    
-    if (!FOURSQUARE_API_KEY) {
-      console.log('❌ No API key');
-      setIsLoadingPlaces(false);
-      return;
-    }
-    
-    try {
-      const radiusMeters = Math.round(radiusMiles * 1609.34);
-      
-      console.log(`🌙 API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
-      console.log(`🌙 Searching ${radiusMiles} miles (${radiusMeters}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-      
-      // FIXED: Much more specific categories for each type
-      const categoryQueries = {
-        food: '13065,13025,13003,13035,13145,13064,13009,13199', // Fast food, restaurants, bars, diners, taco, pizza, burgers, sandwiches
-        coffee: '13032,13033,13034,13385', // Coffee shops, cafes, tea rooms, donut shops  
-        gas: '17069', // Gas stations only
-        pharmacy: '17097', // Pharmacies only
-        grocery: '17043,17051', // Convenience stores, supermarkets only
-        gym: '18021', // Gyms only
-        services: '17114,17115,17050', // ATM, banks, laundromats
-        entertainment: '10032,10027' // Theaters, bowling
-      };
-
-      const allBusinesses = [];
-      
-      // Search each category separately for better accuracy
-      for (const [categoryName, categoryIds] of Object.entries(categoryQueries)) {
-        console.log(`🔍 Searching ${categoryName} businesses...`);
-        
-        const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categoryIds}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
-
-        try {
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Authorization': FOURSQUARE_API_KEY,
-              'Accept': 'application/json'
-            }
-          });
-
-          if (!response.ok) {
-            console.error(`❌ API error for ${categoryName}: ${response.status} ${response.statusText}`);
-            continue;
-          }
-
-          const data = await response.json();
-          console.log(`📋 Found ${data.results?.length || 0} ${categoryName} businesses`);
-          
-          // Process and filter each business
-          if (data.results && data.results.length > 0) {
-            for (const place of data.results) {
-              // FIXED: Ensure location coordinates exist
-              if (!place.location || !place.location.lat || !place.location.lng) {
-                console.log(`❌ Skipping ${place.name} - missing coordinates`);
-                continue;
-              }
-
-              const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
-              
-              // Skip if too far
-              if (distance > radiusMiles) continue;
-              
-              // CRITICAL: Check if actually open late (2AM or later)
-              const isActuallyLateNight = checkIfOpenLate(place.hours);
-              const lateNightInfo = analyzeLateNightHours(place.hours);
-              
-              // FILTER: Only include if actually open late OR known 24/7 chains
-              const knownLateNightChains = [
-                '7-eleven', 'circle k', 'wawa', 'sheetz', 'speedway',
-                'mcdonalds', 'taco bell', 'del taco', 'jack in the box', 'white castle',
-                'dennys', 'ihop', 'waffle house', 'steak n shake',
-                'cvs', 'walgreens', 'rite aid', 
-                'shell', 'chevron', 'exxon', 'mobil', 'bp',
-                '24 hour fitness', 'anytime fitness', 'planet fitness'
-              ];
-              
-              const businessName = place.name.toLowerCase();
-              const isKnownLateNightChain = knownLateNightChains.some(chain => 
-                businessName.includes(chain)
-              );
-              
-              // RELAXED FILTERING for testing - include more places for now
-              // if (!isActuallyLateNight && !isKnownLateNightChain) {
-              //   console.log(`❌ Filtered out ${place.name} - not actually late night`);
-              //   continue;
-              // }
-              
-              console.log(`✅ Adding: ${place.name} - ${lateNightInfo.status}`);
-
-              // FIXED: Calculate ride share properly
-              const rideEstimates = calculateRideShareEstimates(distance);
-
-              allBusinesses.push({
-                id: place.fsq_id,
-                name: place.name,
-                category: categoryName, // Use our category name directly
-                address: formatAddress(place.location),
-                distance: `${distance.toFixed(1)} miles`,
-                distanceValue: distance,
-                rating: place.rating ? (place.rating / 2) : 4.0,
-                crowdLevel: 'Quiet', // Late night is usually quiet
-                verified: true,
-                safetyRating: calculateSafetyRating(place, categoryName),
-                features: getBusinessFeatures(categoryName),
-                hours: place.hours?.display || lateNightInfo.display,
-                rideShareTime: rideEstimates.time, // FIXED
-                rideShareCost: rideEstimates.cost, // FIXED
-                lastReported: '30 min ago',
-                reportedOpen: true,
-                lateNightLevel: lateNightInfo.level,
-                isActuallyLateNight,
-                lateNightScore: calculateLateNightScore(place, categoryName, isActuallyLateNight, lateNightInfo)
-              });
-            }
-          }
-        } catch (error) {
-          console.error(`❌ Error fetching ${categoryName}:`, error);
-        }
-      }
-
-      // Sort by late night score (best late night places first), then by distance
-      const sortedBusinesses = allBusinesses.sort((a, b) => {
-        if (b.lateNightScore !== a.lateNightScore) {
-          return b.lateNightScore - a.lateNightScore;
-        }
-        return a.distanceValue - b.distanceValue;
-      });
-
-      setRealBusinesses(sortedBusinesses);
-      console.log(`✅ Final result: ${sortedBusinesses.length} verified late-night businesses`);
-      
-    } catch (error) {
-      console.error('❌ API Error:', error.message);
-      setRealBusinesses([]);
-    }
-    
-    setIsLoadingPlaces(false);
-  };
-
-  // NEW: Actually check if a business is open late based on real hours data
+  // Check if open late
   const checkIfOpenLate = (hoursData) => {
     if (!hoursData || !hoursData.regular) return false;
-    
     try {
-      // Check each day's hours
       for (const daySchedule of hoursData.regular) {
         if (daySchedule.open) {
           for (const timeSlot of daySchedule.open) {
-            // Check if end time is 2 AM (0200) or later, or if it's 24/7
             const endTime = parseInt(timeSlot.end);
-            
-            // 24/7 places (end time after start time next day)
-            if (endTime <= 600 && endTime < parseInt(timeSlot.start)) {
-              return true;
-            }
-            
-            // Places open until 2 AM or later (0200 = 2:00 AM)
-            if (endTime >= 200 && endTime <= 600) {
-              return true;
-            }
+            if (endTime <= 600 && endTime < parseInt(timeSlot.start)) return true;
+            if (endTime >= 200 && endTime <= 600) return true;
           }
         }
       }
     } catch (error) {
       console.log('Error parsing hours:', error);
     }
-    
     return false;
   };
 
-  // NEW: Analyze hours to get detailed late night info
+  // Analyze late night hours
   const analyzeLateNightHours = (hoursData) => {
     if (!hoursData) {
       return { level: 'Check Hours', status: 'Hours unknown', display: 'Check hours' };
     }
     
-    // Check display text first
     const display = hoursData.display || '';
     const displayLower = display.toLowerCase();
     
@@ -287,95 +116,140 @@ const NightOwlsApp = () => {
       return { level: 'Open Late', status: 'Open until midnight-1 AM', display };
     }
     
-    // Check structured hours data
-    if (hoursData.regular) {
-      try {
-        let latestEnd = 0;
-        let is24Hour = false;
-        
-        for (const daySchedule of hoursData.regular) {
-          if (daySchedule.open) {
-            for (const timeSlot of daySchedule.open) {
-              const startTime = parseInt(timeSlot.start);
-              const endTime = parseInt(timeSlot.end);
-              
-              // Check for 24/7 (end time wraps to next day)
-              if (endTime < startTime) {
-                is24Hour = true;
-              }
-              
-              // Track latest closing time
-              if (endTime >= 200 && endTime <= 600) {
-                latestEnd = Math.max(latestEnd, endTime);
-              }
-            }
-          }
-        }
-        
-        if (is24Hour) {
-          return { level: '24/7', status: 'Open 24/7', display: '24 hours' };
-        }
-        
-        if (latestEnd >= 300) {
-          return { level: 'Open Very Late', status: 'Open until 3+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
-        }
-        
-        if (latestEnd >= 200) {
-          return { level: 'Open Late', status: 'Open until 2+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
-        }
-      } catch (error) {
-        console.log('Error analyzing structured hours:', error);
-      }
-    }
-    
     return { level: 'Check Hours', status: 'Hours unknown', display: display || 'Check hours' };
   };
 
-  // NEW: Calculate late night score for ranking
+  // Calculate late night score
   const calculateLateNightScore = (place, category, isActuallyLateNight, lateNightInfo) => {
     let score = 0;
-    
-    // Base score for being actually open late
     if (isActuallyLateNight) score += 10;
     
-    // Bonus for level of lateness
     switch (lateNightInfo.level) {
       case '24/7': score += 15; break;
       case 'Open Very Late': score += 10; break;
       case 'Open Late': score += 5; break;
     }
     
-    // Category relevance for late night
-    const categoryScores = {
-      food: 8,
-      coffee: 6,
-      gas: 9,
-      pharmacy: 7,
-      grocery: 8,
-      gym: 4,
-      services: 3,
-      entertainment: 2
-    };
+    const categoryScores = { food: 8, coffee: 6, gas: 9, pharmacy: 7, grocery: 8, gym: 4, services: 3, entertainment: 2 };
     score += categoryScores[category] || 1;
     
-    // Known late night chains bonus
     const businessName = place.name.toLowerCase();
-    const lateNightChains = [
-      '7-eleven', 'circle k', 'taco bell', 'mcdonalds', 'dennys', 
-      'ihop', 'waffle house', 'cvs', 'walgreens'
-    ];
-    
-    if (lateNightChains.some(chain => businessName.includes(chain))) {
-      score += 5;
-    }
-    
-    // Rating bonus
+    const lateNightChains = ['7-eleven', 'circle k', 'taco bell', 'mcdonalds', 'dennys', 'ihop', 'waffle house', 'cvs', 'walgreens'];
+    if (lateNightChains.some(chain => businessName.includes(chain))) score += 5;
     if (place.rating && place.rating > 8) score += 2;
     
     return Math.min(50, score);
   };
 
-  // Get user location - SIMPLIFIED
+  // Fetch places from API
+  const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
+    setIsLoadingPlaces(true);
+    
+    if (!FOURSQUARE_API_KEY) {
+      console.log('❌ No API key');
+      setIsLoadingPlaces(false);
+      return;
+    }
+    
+    try {
+      const radiusMeters = Math.round(radiusMiles * 1609.34);
+      console.log(`🌙 Searching ${radiusMiles} miles around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      
+      const categoryQueries = {
+        food: '13065,13025,13003,13035,13145,13064,13009,13199',
+        coffee: '13032,13033,13034,13385',
+        gas: '17069',
+        pharmacy: '17097',
+        grocery: '17043,17051',
+        gym: '18021',
+        services: '17114,17115,17050',
+        entertainment: '10032,10027'
+      };
+
+      const allBusinesses = [];
+      
+      for (const [categoryName, categoryIds] of Object.entries(categoryQueries)) {
+        console.log(`🔍 Searching ${categoryName} businesses...`);
+        
+        const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categoryIds}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
+
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': FOURSQUARE_API_KEY,
+              'Accept': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            console.error(`❌ API error for ${categoryName}: ${response.status}`);
+            continue;
+          }
+
+          const data = await response.json();
+          console.log(`📋 Found ${data.results?.length || 0} ${categoryName} businesses`);
+          
+          if (data.results && data.results.length > 0) {
+            for (const place of data.results) {
+              if (!place.location || !place.location.lat || !place.location.lng) {
+                continue;
+              }
+
+              const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
+              if (distance > radiusMiles) continue;
+              
+              const isActuallyLateNight = checkIfOpenLate(place.hours);
+              const lateNightInfo = analyzeLateNightHours(place.hours);
+              const rideEstimates = calculateRideShareEstimates(distance);
+
+              allBusinesses.push({
+                id: place.fsq_id,
+                name: place.name,
+                category: categoryName,
+                address: formatAddress(place.location),
+                distance: `${distance.toFixed(1)} miles`,
+                distanceValue: distance,
+                rating: place.rating ? (place.rating / 2) : 4.0,
+                crowdLevel: 'Quiet',
+                verified: true,
+                safetyRating: calculateSafetyRating(place, categoryName),
+                features: getBusinessFeatures(categoryName),
+                hours: place.hours?.display || lateNightInfo.display,
+                rideShareTime: rideEstimates.time,
+                rideShareCost: rideEstimates.cost,
+                lastReported: '30 min ago',
+                reportedOpen: true,
+                lateNightLevel: lateNightInfo.level,
+                isActuallyLateNight,
+                lateNightScore: calculateLateNightScore(place, categoryName, isActuallyLateNight, lateNightInfo)
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error fetching ${categoryName}:`, error);
+        }
+      }
+
+      const sortedBusinesses = allBusinesses.sort((a, b) => {
+        if (b.lateNightScore !== a.lateNightScore) {
+          return b.lateNightScore - a.lateNightScore;
+        }
+        return a.distanceValue - b.distanceValue;
+      });
+
+      setRealBusinesses(sortedBusinesses);
+      console.log(`✅ Final result: ${sortedBusinesses.length} businesses`);
+      
+    } catch (error) {
+      console.error('❌ API Error:', error.message);
+      setRealBusinesses([]);
+    }
+    
+    setIsLoadingPlaces(false);
+  };
+
+  // Get user location
   const getCurrentLocation = () => {
     setIsLoadingLocation(true);
     
@@ -387,7 +261,7 @@ const NightOwlsApp = () => {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        console.log('📍 Current location found:', position.coords.latitude, position.coords.longitude);
+        console.log('📍 Location found:', position.coords.latitude, position.coords.longitude);
         setUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude
@@ -555,6 +429,94 @@ const NightOwlsApp = () => {
               <MapPin size={20} className="text-purple-400" />
               <span className="text-base font-semibold text-gray-300">Current Location</span>
             </div>
+            <button
+              onClick={getCurrentLocation}
+              className="text-purple-400 hover:text-purple-300 text-sm font-semibold transition-colors"
+            >
+              📍 Refresh
+            </button>
+          </div>
+
+          {/* Extended Radius Control */}
+          <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
+            <span className="text-base font-semibold text-gray-300">Search Radius</span>
+            <select
+              value={searchRadius}
+              onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
+              className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer"
+            >
+              <option value={1}>1 mi</option>
+              <option value={2}>2 mi</option>
+              <option value={5}>5 mi</option>
+              <option value={10}>10 mi</option>
+              <option value={25}>25 mi</option>
+              <option value={50}>50 mi</option>
+              <option value={75}>75 mi</option>
+              <option value={100}>100 mi</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Category Filters */}
+      <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
+        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4">
+          {categories.map((category) => {
+            const IconComponent = category.icon;
+            return (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max ${
+                  selectedCategory === category.id
+                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg'
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700'
+                }`}
+              >
+                <IconComponent size={18} />
+                <span className="text-base">{category.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Business List */}
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <div className="flex items-center space-x-3 mb-2">
+              <h2 className="text-2xl font-bold text-white">
+                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
+              </h2>
+              {realBusinesses.length > 0 ? (
+                <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  FOURSQUARE LIVE
+                </span>
+              ) : (
+                <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  DEMO DATA
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 font-medium">
+              Sorted by late-night score • Real-time data from Foursquare
+            </p>
+          </div>
+        </div>
+
+        {isLoadingPlaces && (
+          <div className="text-center py-12">
+            <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-400 font-medium">Searching within {searchRadius} miles...</p>
+          </div>
+        )}
+
+        {!userLocation && !isLoadingLocation && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🌙</div>
+            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
+            <p className="text-gray-400 mb-6">Get real-time data on late night businesses</p>
             <button
               onClick={getCurrentLocation}
               className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all"
@@ -761,92 +723,4 @@ const NightOwlsApp = () => {
   );
 };
 
-export default NightOwlsApp;text-purple-400 hover:text-purple-300 text-sm font-semibold transition-colors"
-            >
-              📍 Refresh
-            </button>
-          </div>
-
-          {/* UPDATED: Extended Radius Control */}
-          <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
-            <span className="text-base font-semibold text-gray-300">Search Radius</span>
-            <select
-              value={searchRadius}
-              onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
-              className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer"
-            >
-              <option value={1}>1 mi</option>
-              <option value={2}>2 mi</option>
-              <option value={5}>5 mi</option>
-              <option value={10}>10 mi</option>
-              <option value={25}>25 mi</option>
-              <option value={50}>50 mi</option>
-              <option value={75}>75 mi</option>
-              <option value={100}>100 mi</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Category Filters */}
-      <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
-        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4">
-          {categories.map((category) => {
-            const IconComponent = category.icon;
-            return (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max ${
-                  selectedCategory === category.id
-                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg'
-                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700'
-                }`}
-              >
-                <IconComponent size={18} />
-                <span className="text-base">{category.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Business List */}
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="flex items-center space-x-3 mb-2">
-              <h2 className="text-2xl font-bold text-white">
-                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
-              </h2>
-              {realBusinesses.length > 0 ? (
-                <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  FOURSQUARE LIVE
-                </span>
-              ) : (
-                <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  DEMO DATA
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-gray-400 font-medium">
-              Sorted by late-night score • Real-time data from Foursquare
-            </p>
-          </div>
-        </div>
-
-        {isLoadingPlaces && (
-          <div className="text-center py-12">
-            <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-400 font-medium">Searching within {searchRadius} miles...</p>
-          </div>
-        )}
-
-        {!userLocation && !isLoadingLocation && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🌙</div>
-            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
-            <p className="text-gray-400 mb-6">Get real-time data on late night businesses</p>
-            <button
-              onClick={getCurrentLocation}
-              className="
+export default NightOwlsApp;
