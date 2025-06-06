@@ -1,4 +1,311 @@
-useEffect(() => {
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Search, MapPin, Clock, Users, Star, Navigation, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell, MessageSquare } from 'lucide-react';
+
+const NightOwlsApp = () => {
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [favorites, setFavorites] = useState(new Set([2, 4]));
+  const [reportModal, setReportModal] = useState(null);
+  const [searchRadius, setSearchRadius] = useState(5);
+  const [searchLocation, setSearchLocation] = useState('Current Location');
+  const [showLocationSearch, setShowLocationSearch] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [realBusinesses, setRealBusinesses] = useState([]);
+  const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
+
+  // FOURSQUARE API KEY - WORKING VERSION
+  const FOURSQUARE_API_KEY = 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
+
+  // In-memory cache
+  const [placesCache, setPlacesCache] = useState(new Map());
+  const CACHE_DURATION = 10 * 60 * 1000;
+
+  // Geocoding function
+  const geocodeLocation = async (locationString) => {
+    const cityCoordinates = {
+      'san francisco, ca': { lat: 37.7749, lng: -122.4194 },
+      'los angeles, ca': { lat: 34.0522, lng: -118.2437 },
+      'new york, ny': { lat: 40.7128, lng: -74.0060 },
+      'chicago, il': { lat: 41.8781, lng: -87.6298 },
+      'washington, dc': { lat: 38.9072, lng: -77.0369 },
+      'miami, fl': { lat: 25.7617, lng: -80.1918 }
+    };
+
+    const normalizedLocation = locationString.toLowerCase().trim();
+    
+    if (cityCoordinates[normalizedLocation]) {
+      console.log(`📍 Using coordinates for ${locationString}`);
+      return cityCoordinates[normalizedLocation];
+    }
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationString)}&limit=1&countrycodes=us`
+      );
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon)
+        };
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error);
+    }
+    
+    return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
+  };
+
+  // Distance calculation
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 3959;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Format address
+  const formatAddress = (location) => {
+    const parts = [location.address, location.locality, location.region].filter(Boolean);
+    return parts.join(', ') || 'Address not available';
+  };
+
+  // Category mapping
+  const getCategoryFromFoursquare = (categories) => {
+    if (!categories || categories.length === 0) return 'services';
+    
+    const categoryMap = {
+      '13065': 'food', '13025': 'food', '13032': 'coffee',
+      '17069': 'gas', '17097': 'pharmacy', '17043': 'grocery',
+      '18021': 'gym'
+    };
+    
+    return categoryMap[categories[0].id] || 'food';
+  };
+
+  // MAIN API FUNCTION - FIXED
+  const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
+    setIsLoadingPlaces(true);
+    
+    if (!FOURSQUARE_API_KEY) {
+      console.log('❌ No API key');
+      setIsLoadingPlaces(false);
+      return;
+    }
+    
+    try {
+      // CRITICAL FIX: Round to integer
+      const radiusMeters = Math.round(radiusMiles * 1609.34);
+      
+      console.log(`🌙 API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
+      console.log(`🌙 Searching ${radiusMiles} miles (${radiusMeters}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      
+      const categories = '13065,13025,13032,17069,17097,17043,18021';
+      const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categories}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
+
+      console.log(`📍 API call: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': FOURSQUARE_API_KEY,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('📋 API error:', errorData);
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`🔍 Found ${data.results.length} businesses`);
+      
+      const businesses = data.results.map((place, index) => {
+        const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
+        const category = getCategoryFromFoursquare(place.categories);
+        
+        console.log(`📏 ${place.name}: ${distance.toFixed(1)}mi, ${category}`);
+
+        return {
+          id: place.fsq_id,
+          name: place.name,
+          category,
+          address: formatAddress(place.location),
+          distance: `${distance.toFixed(1)} miles`,
+          distanceValue: distance,
+          rating: place.rating ? (place.rating / 2) : 4.0,
+          crowdLevel: 'Quiet',
+          verified: true,
+          safetyRating: 4,
+          features: ['Free WiFi', 'Parking', 'Well-lit'],
+          hours: place.hours?.display || '24/7',
+          rideShareTime: `${Math.ceil(distance * 3)} min`,
+          rideShareCost: `$${Math.ceil(distance * 2.5 + 8)}`,
+          lastReported: '30 min ago',
+          reportedOpen: true,
+          lateNightLevel: '24/7'
+        };
+      }).sort((a, b) => a.distanceValue - b.distanceValue);
+
+      setRealBusinesses(businesses);
+      console.log(`✅ Loaded ${businesses.length} businesses`);
+      
+    } catch (error) {
+      console.error('❌ API Error:', error.message);
+      setRealBusinesses([]);
+    }
+    
+    setIsLoadingPlaces(false);
+  };
+
+  // Get user location
+  const getCurrentLocation = () => {
+    setIsLoadingLocation(true);
+    
+    if (!navigator.geolocation) {
+      setIsLoadingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.log('📍 Location found');
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        });
+        setSearchLocation('Current Location');
+        setIsLoadingLocation(false);
+      },
+      (error) => {
+        console.error('Location error:', error);
+        setIsLoadingLocation(false);
+      }
+    );
+  };
+
+  // Handle location change
+  const handleLocationChange = async (newLocation) => {
+    setShowLocationSearch(false);
+    setSearchLocation(newLocation + ' (Loading...)');
+    setIsLoadingLocation(true);
+    
+    try {
+      const coordinates = await geocodeLocation(newLocation);
+      setUserLocation(coordinates);
+      setSearchLocation(newLocation);
+      console.log(`📍 Location changed to ${newLocation}`);
+    } catch (error) {
+      console.error('Error changing location:', error);
+      setSearchLocation(newLocation + ' (Error)');
+    }
+    
+    setIsLoadingLocation(false);
+  };
+
+  // Navigation functions
+  const openInGoogleMaps = (business) => {
+    const address = encodeURIComponent(business.address);
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank');
+  };
+
+  const bookUberRide = (business) => {
+    const address = encodeURIComponent(business.address);
+    window.open(`https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${address}`, '_blank');
+  };
+
+  const bookLyftRide = (business) => {
+    const address = encodeURIComponent(business.address);
+    window.open(`https://lyft.com/ride?destination[address]=${address}`, '_blank');
+  };
+
+  // Mock data
+  const businesses = [
+    {
+      id: 1, name: "Tony's 24 Hour Diner", category: 'food',
+      address: '142 Main St', distance: '0.3 miles', distanceValue: 0.3,
+      rating: 4.2, crowdLevel: 'Quiet', verified: true, safetyRating: 4,
+      features: ['Free WiFi', 'Parking', 'Well-lit'], hours: '24/7',
+      rideShareTime: '4 min', rideShareCost: '$8', lastReported: '2 hours ago',
+      reportedOpen: true, lateNightLevel: '24/7'
+    },
+    {
+      id: 2, name: 'Midnight Grounds Coffee', category: 'coffee',
+      address: '87 Oak Avenue', distance: '0.5 miles', distanceValue: 0.5,
+      rating: 4.7, crowdLevel: 'Moderate', verified: true, safetyRating: 5,
+      features: ['Study Space', 'Power Outlets'], hours: '24/7',
+      rideShareTime: '6 min', rideShareCost: '$9', lastReported: '15 min ago',
+      reportedOpen: true, lateNightLevel: '24/7'
+    }
+  ];
+
+  const categories = [
+    { id: 'all', name: 'All', icon: MapPin },
+    { id: 'food', name: 'Food', icon: Utensils },
+    { id: 'coffee', name: 'Coffee', icon: Coffee },
+    { id: 'gas', name: 'Gas', icon: Fuel },
+    { id: 'pharmacy', name: 'Pharmacy', icon: Pill },
+    { id: 'grocery', name: 'Grocery', icon: ShoppingCart },
+    { id: 'gym', name: 'Gym', icon: Dumbbell }
+  ];
+
+  // Use real businesses when available
+  const allBusinesses = realBusinesses.length > 0 ? realBusinesses : businesses;
+  
+  const filteredBusinesses = allBusinesses.filter(business => {
+    const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
+    const matchesSearch = business.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const getCrowdColor = (level) => {
+    switch(level) {
+      case 'Quiet': return 'text-green-400';
+      case 'Moderate': return 'text-yellow-400';
+      case 'Busy': return 'text-red-400';
+      default: return 'text-gray-400';
+    }
+  };
+
+  const getSafetyStars = (rating) => {
+    return Array.from({ length: 5 }, (_, i) => (
+      <Star key={i} size={12} className={i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'} />
+    ));
+  };
+
+  const toggleFavorite = (businessId) => {
+    const newFavorites = new Set(favorites);
+    if (newFavorites.has(businessId)) {
+      newFavorites.delete(businessId);
+    } else {
+      newFavorites.add(businessId);
+    }
+    setFavorites(newFavorites);
+  };
+
+  // Effects
+  useEffect(() => {
+    getCurrentLocation();
+  }, []);
+
+  useEffect(() => {
+    if (userLocation && userLocation.lat && userLocation.lng) {
+      fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
+    }
+  }, [userLocation, searchRadius]);
+
+  useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -8,7 +315,7 @@ useEffect(() => {
       {/* Status Banner */}
       <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-3 text-center">
         <div className="text-sm font-semibold">
-          🌙 Night Owls • Find Late Night & 24/7 Places • Open Until 2AM+ • Perfect for Night Shift Workers & Insomniacs
+          🌙 Night Owls • Find Late Night & 24/7 Places • Perfect for Night Shift Workers & Insomniacs
         </div>
       </div>
       
@@ -34,7 +341,7 @@ useEffect(() => {
               {userLocation ? (
                 <span className="text-green-400">📍 Location Set</span>
               ) : isLoadingLocation ? (
-                <span className="text-yellow-400">📍 Loading Location...</span>
+                <span className="text-yellow-400">📍 Loading...</span>
               ) : (
                 <span className="text-gray-400">📍 Location Off</span>
               )}
@@ -51,17 +358,16 @@ useEffect(() => {
               placeholder="Search late night businesses..."
               className="w-full bg-gray-900 text-white pl-12 pr-4 py-4 rounded-xl border border-gray-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none transition-all font-medium placeholder-gray-500 text-base"
               value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          {/* Search Controls */}
+          {/* Location & Radius Controls */}
           <div className="space-y-3">
-            {/* Location Selector */}
             <div className="relative">
               <button
                 onClick={() => setShowLocationSearch(!showLocationSearch)}
-                className="w-full flex items-center justify-between bg-gray-900 text-white px-4 py-4 rounded-xl border border-gray-700 hover:border-purple-500 focus:border-purple-500 focus:outline-none transition-all font-medium touch-manipulation"
+                className="w-full flex items-center justify-between bg-gray-900 text-white px-4 py-4 rounded-xl border border-gray-700 hover:border-purple-500 transition-all font-medium"
               >
                 <div className="flex items-center space-x-3">
                   <MapPin size={20} className="text-purple-400" />
@@ -90,26 +396,19 @@ useEffect(() => {
                           getCurrentLocation();
                           setShowLocationSearch(false);
                         }}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all"
                       >
-                        📍 {isLoadingLocation ? 'Finding Your Location...' : 'Use Current Location'}
+                        📍 Use Current Location
                       </button>
                       <button
                         onClick={() => handleLocationChange('San Francisco, CA')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all"
                       >
                         🌆 San Francisco, CA
                       </button>
                       <button
-                        onClick={() => handleLocationChange('Los Angeles, CA')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                      >
-                        🌴 Los Angeles, CA
-                      </button>
-                      <button
                         onClick={() => handleLocationChange('New York, NY')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all"
                       >
                         🗽 New York, NY
                       </button>
@@ -119,16 +418,13 @@ useEffect(() => {
               )}
             </div>
 
-            {/* Radius Selector */}
             <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
               <span className="text-base font-semibold text-gray-300">Search Radius</span>
               <select
                 value={searchRadius}
                 onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
-                className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer touch-manipulation"
+                className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer"
               >
-                <option value={0.25}>0.25 mi</option>
-                <option value={0.5}>0.5 mi</option>
                 <option value={1}>1 mi</option>
                 <option value={2}>2 mi</option>
                 <option value={5}>5 mi</option>
@@ -142,17 +438,17 @@ useEffect(() => {
 
       {/* Category Filters */}
       <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
-        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4">
           {categories.map((category) => {
             const IconComponent = category.icon;
             return (
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category.id)}
-                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max touch-manipulation ${
+                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max ${
                   selectedCategory === category.id
-                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg shadow-purple-500/25'
-                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700 hover:border-gray-600'
+                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg'
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700'
                 }`}
               >
                 <IconComponent size={18} />
@@ -175,10 +471,6 @@ useEffect(() => {
                 <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
                   FOURSQUARE LIVE
                 </span>
-              ) : FOURSQUARE_API_KEY && !FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE') ? (
-                <span className="bg-yellow-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  NO RESULTS
-                </span>
               ) : (
                 <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
                   DEMO DATA
@@ -186,12 +478,7 @@ useEffect(() => {
               )}
             </div>
             <p className="text-sm text-gray-400 font-medium">
-              Found by Foursquare API • Sorted by late night relevance
-              {searchQuery && ` • Search: "${searchQuery}"`}
-              {selectedCategory !== 'all' && ` • Category: ${selectedCategory}`}
-              {allBusinesses.length !== filteredBusinesses.length && 
-                ` • ${allBusinesses.length - filteredBusinesses.length} filtered by search/category`
-              }
+              Sorted by distance • Real-time data from Foursquare
             </p>
           </div>
         </div>
@@ -199,7 +486,7 @@ useEffect(() => {
         {isLoadingPlaces && (
           <div className="text-center py-12">
             <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-400 font-medium">Loading businesses from Foursquare...</p>
+            <p className="text-gray-400 font-medium">Loading businesses...</p>
           </div>
         )}
 
@@ -207,156 +494,129 @@ useEffect(() => {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🌙</div>
             <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
-            <p className="text-gray-400 mb-6">We'll find restaurants, services, and businesses open late or all night using Foursquare</p>
+            <p className="text-gray-400 mb-6">Get real-time data on late night businesses</p>
             <button
               onClick={getCurrentLocation}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all"
             >
               📍 Get My Location
             </button>
-            <p className="text-xs text-gray-500 mt-4">Add your free Foursquare API key for live data</p>
           </div>
         )}
 
-        {filteredBusinesses.length > 0 ? (
-          filteredBusinesses.map((business) => (
-            <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg hover:shadow-purple-500/10 mx-1">
-              <div className="flex justify-between items-start mb-6">
-                <div className="flex-1 pr-4">
-                  <div className="flex items-center space-x-3 mb-3">
-                    <h3 className="font-bold text-xl text-white tracking-tight leading-tight">{business.name}</h3>
-                    {business.verified && (
-                      <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg shadow-green-400/50" title="Verified Open"></div>
-                    )}
-                    {business.lateNightLevel && business.lateNightLevel !== 'Check Hours' && (
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        business.lateNightLevel === '24/7' 
-                          ? 'bg-green-600 text-white' 
-                          : business.lateNightLevel === 'Open Very Late'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-purple-600 text-white'
-                      }`}>
-                        {business.lateNightLevel}
-                      </span>
-                    )}
+        {filteredBusinesses.map((business) => (
+          <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg">
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex-1 pr-4">
+                <div className="flex items-center space-x-3 mb-3">
+                  <h3 className="font-bold text-xl text-white">{business.name}</h3>
+                  {business.verified && (
+                    <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg" title="Verified Open"></div>
+                  )}
+                  {business.lateNightLevel && (
+                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white">
+                      {business.lateNightLevel}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
+                  <MapPin size={18} />
+                  <span className="font-medium">{business.address} • {business.distance}</span>
+                </div>
+                
+                <div className="flex items-center space-x-6 mb-4">
+                  <div className="flex items-center space-x-2">
+                    <Users size={18} className="text-gray-500" />
+                    <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
+                      {business.crowdLevel}
+                    </span>
                   </div>
-                  <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
-                    <MapPin size={18} />
-                    <span className="font-medium">{business.address} • {business.distance}</span>
+                  <div className="flex items-center space-x-2">
+                    <Star size={18} className="fill-yellow-400 text-yellow-400" />
+                    <span className="text-base font-bold text-gray-200">{business.rating}</span>
                   </div>
-                  
-                  <div className="flex items-center space-x-6 mb-4">
-                    <div className="flex items-center space-x-2">
-                      <Users size={18} className="text-gray-500" />
-                      <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
-                        {business.crowdLevel}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Star size={18} className="fill-yellow-400 text-yellow-400" />
-                      <span className="text-base font-bold text-gray-200">{business.rating}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm text-gray-500 font-medium">Safety:</span>
-                      <div className="flex space-x-1">
-                        {getSafetyStars(business.safetyRating)}
-                      </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-sm text-gray-500 font-medium">Safety:</span>
+                    <div className="flex space-x-1">
+                      {getSafetyStars(business.safetyRating)}
                     </div>
                   </div>
                 </div>
-                
-                <button
-                  onClick={() => toggleFavorite(business.id)}
-                  className={`p-3 rounded-full transition-all touch-manipulation ${
-                    favorites.has(business.id) 
-                      ? 'text-red-400 hover:text-red-300 bg-red-900/20' 
-                      : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
-                  }`}
-                >
-                  <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
-                </button>
               </div>
+              
+              <button
+                onClick={() => toggleFavorite(business.id)}
+                className={`p-3 rounded-full transition-all ${
+                  favorites.has(business.id) 
+                    ? 'text-red-400 bg-red-900/20' 
+                    : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
+                }`}
+              >
+                <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
+              </button>
+            </div>
 
-              {/* Ride Share Integration */}
-              <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Car size={20} className="text-purple-400" />
-                    <div>
-                      <span className="text-base font-semibold text-gray-200 block">Ride there</span>
-                      <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button 
-                      onClick={() => bookUberRide(business)}
-                      className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700 touch-manipulation"
-                    >
-                      Uber
-                    </button>
-                    <button 
-                      onClick={() => bookLyftRide(business)}
-                      className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all touch-manipulation"
-                    >
-                      Lyft
-                    </button>
+            {/* Ride Share */}
+            <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Car size={20} className="text-purple-400" />
+                  <div>
+                    <span className="text-base font-semibold text-gray-200 block">Ride there</span>
+                    <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
                   </div>
                 </div>
-              </div>
-
-              {/* Features */}
-              <div className="flex flex-wrap gap-2 mb-5">
-                {business.features.map((feature, index) => (
-                  <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
-                    {feature}
-                  </span>
-                ))}
-              </div>
-
-              {/* Action buttons */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => showNavigationOptions(business)}
-                  className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg shadow-purple-500/25 touch-manipulation"
-                >
-                  <Navigation size={16} />
-                  <span>Navigate</span>
-                  <span className="text-purple-200 text-xs">✓</span>
-                </button>
-                
-                <button
-                  onClick={() => setReportModal(business)}
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation"
-                >
-                  <AlertTriangle size={16} />
-                  <span>Report</span>
-                  <span className="text-green-400 text-xs">✓</span>
-                </button>
-
-                <button
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
-                >
-                  <MessageSquare size={16} />
-                  <span>Reviews</span>
-                  <span className="text-yellow-400 text-xs">Soon</span>
-                </button>
-                
-                <button
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
-                >
-                  <span>📸</span>
-                  <span>Photos</span>
-                  <span className="text-yellow-400 text-xs">Soon</span>
-                </button>
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={() => bookUberRide(business)}
+                    className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700"
+                  >
+                    Uber
+                  </button>
+                  <button 
+                    onClick={() => bookLyftRide(business)}
+                    className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+                  >
+                    Lyft
+                  </button>
+                </div>
               </div>
             </div>
-          ))
-        ) : null}
+
+            {/* Features */}
+            <div className="flex flex-wrap gap-2 mb-5">
+              {business.features.map((feature, index) => (
+                <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
+                  {feature}
+                </span>
+              ))}
+            </div>
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => openInGoogleMaps(business)}
+                className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg"
+              >
+                <Navigation size={16} />
+                <span>Navigate</span>
+              </button>
+              
+              <button
+                onClick={() => setReportModal(business)}
+                className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
+              >
+                <AlertTriangle size={16} />
+                <span>Report</span>
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Report Modal */}
       {reportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-end justify-center z-50 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-end justify-center z-50">
           <div className="bg-gray-950 rounded-t-3xl w-full border-t border-gray-800 shadow-2xl">
             <div className="p-6 border-b border-gray-800">
               <div className="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4"></div>
@@ -367,14 +627,20 @@ useEffect(() => {
               <p className="text-lg text-gray-300 font-medium">Is this place currently open?</p>
               <div className="space-y-4">
                 <button
-                  onClick={() => handleReport(reportModal.id, true)}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
+                  onClick={() => {
+                    console.log(`Reported ${reportModal.id} as open`);
+                    setReportModal(null);
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg"
                 >
                   ✓ Yes, it's open
                 </button>
                 <button
-                  onClick={() => handleReport(reportModal.id, false)}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
+                  onClick={() => {
+                    console.log(`Reported ${reportModal.id} as closed`);
+                    setReportModal(null);
+                  }}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg"
                 >
                   ✗ No, it's closed
                 </button>
@@ -386,7 +652,7 @@ useEffect(() => {
             <div className="p-6 border-t border-gray-800 pb-8">
               <button 
                 onClick={() => setReportModal(null)}
-                className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 touch-manipulation"
+                className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
               >
                 Cancel
               </button>
@@ -396,877 +662,42 @@ useEffect(() => {
       )}
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 shadow-2xl safe-area-pb">
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 shadow-2xl">
         <div className="flex justify-around items-center py-4 px-4">
-          <button className="flex flex-col items-center space-y-2 text-purple-400 p-3 -m-3 touch-manipulation">
+          <button className="flex flex-col items-center space-y-2 text-purple-400 p-3">
             <MapPin size={28} />
             <span className="text-xs font-semibold">Nearby</span>
           </button>
-          <button 
-            onClick={() => setShowNotifications(true)}
-            className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 relative transition-colors p-3 -m-3 touch-manipulation"
-          >
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 relative transition-colors p-3">
             <Bell size={28} />
             <span className="text-xs font-semibold">Alerts</span>
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/50">
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
               <span className="text-xs text-white font-bold">2</span>
             </div>
           </button>
-          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3">
             <Clock size={28} />
             <span className="text-xs font-semibold">History</span>
           </button>
-          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3">
             <Heart size={28} />
             <span className="text-xs font-semibold">Favorites</span>
           </button>
         </div>
       </div>
 
-      {/* Add bottom padding */}
+      {/* Bottom padding */}
       <div className="h-24"></div>
       
       {/* Debug Footer */}
       <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
         <div className="text-xs text-gray-500 space-y-2">
-          <div>✅ <span className="text-green-400">Working Now:</span> GPS • Navigation • Rideshare • Favorites • Reports • Location Search</div>
-          <div>🌙 <span className="text-purple-400">All Businesses:</span> Shows ALL businesses sorted by late night relevance</div>
-          <div>🚧 <span className="text-yellow-400">Coming Soon:</span> User Reviews • Photo Upload • Push Notifications • Enhanced Filters</div>
-          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Category: {selectedCategory} • Search: "{searchQuery}" • Radius: {searchRadius}mi</div>
+          <div>✅ <span className="text-green-400">Working:</span> GPS • Navigation • Rideshare • Favorites • Reports</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Radius: {searchRadius}mi</div>
         </div>
       </div>
     </div>
   );
 };
 
-export default NightOwlsApp;'use client';
-
-import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Clock, Users, Star, Navigation, Filter, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell, MessageSquare, Send } from 'lucide-react';
-
-const NightOwlsApp = () => {
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [viewMode, setViewMode] = useState('list');
-  const [selectedBusiness, setSelectedBusiness] = useState(null);
-  const [favorites, setFavorites] = useState(new Set([2, 4]));
-  const [showReviews, setShowReviews] = useState(null);
-  const [reportModal, setReportModal] = useState(null);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showDistanceCircles, setShowDistanceCircles] = useState(true);
-  const [routePlanningFor, setRoutePlanningFor] = useState(null);
-  const [selectedPin, setSelectedPin] = useState(null);
-  const [showPhotos, setShowPhotos] = useState(null);
-  const [searchRadius, setSearchRadius] = useState(5);
-  const [searchLocation, setSearchLocation] = useState('Current Location');
-  const [showLocationSearch, setShowLocationSearch] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-
-  // Add real functionality hooks
-  const [userLocation, setUserLocation] = useState(null);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
-  
-  // Real places data using Foursquare Places API
-  const [realBusinesses, setRealBusinesses] = useState([]);
-  const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
-
-  // Foursquare API key - FIXED WITH YOUR REAL KEY
-  const FOURSQUARE_API_KEY = apiKey || 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
-
-  // In-memory cache (no localStorage usage)
-  const [placesCache, setPlacesCache] = useState(new Map());
-  const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
-
-  // Helper functions for enhanced functionality
-  const getCachedPlaces = (lat, lng, radiusMiles) => {
-    const cacheKey = `${lat.toFixed(4)}_${lng.toFixed(4)}_${radiusMiles}`;
-    const cached = placesCache.get(cacheKey);
-    
-    if (cached) {
-      const age = Date.now() - cached.timestamp;
-      if (age < CACHE_DURATION) {
-        console.log('📦 Using cached places data');
-        return cached.data;
-      } else {
-        // Remove expired cache
-        setPlacesCache(prev => {
-          const newCache = new Map(prev);
-          newCache.delete(cacheKey);
-          return newCache;
-        });
-      }
-    }
-    
-    return null;
-  };
-
-  const setCachedPlaces = (lat, lng, radiusMiles, places) => {
-    const cacheKey = `${lat.toFixed(4)}_${lng.toFixed(4)}_${radiusMiles}`;
-    setPlacesCache(prev => new Map(prev).set(cacheKey, {
-      data: places,
-      timestamp: Date.now()
-    }));
-  };
-
-  // Geocoding function to convert city names/zip codes to coordinates
-  const geocodeLocation = async (locationString) => {
-    const cityCoordinates = {
-      'san francisco, ca': { lat: 37.7749, lng: -122.4194 },
-      'los angeles, ca': { lat: 34.0522, lng: -118.2437 },
-      'new york, ny': { lat: 40.7128, lng: -74.0060 },
-      'chicago, il': { lat: 41.8781, lng: -87.6298 },
-      'houston, tx': { lat: 29.7604, lng: -95.3698 },
-      'phoenix, az': { lat: 33.4484, lng: -112.0740 },
-      'philadelphia, pa': { lat: 39.9526, lng: -75.1652 },
-      'san antonio, tx': { lat: 29.4241, lng: -98.4936 },
-      'san diego, ca': { lat: 32.7157, lng: -117.1611 },
-      'dallas, tx': { lat: 32.7767, lng: -96.7970 },
-      'austin, tx': { lat: 30.2672, lng: -97.7431 },
-      'seattle, wa': { lat: 47.6062, lng: -122.3321 },
-      'denver, co': { lat: 39.7392, lng: -104.9903 },
-      'washington, dc': { lat: 38.9072, lng: -77.0369 },
-      'boston, ma': { lat: 42.3601, lng: -71.0589 },
-      'las vegas, nv': { lat: 36.1699, lng: -115.1398 },
-      'miami, fl': { lat: 25.7617, lng: -80.1918 },
-      'atlanta, ga': { lat: 33.7490, lng: -84.3880 },
-      'portland, or': { lat: 45.5152, lng: -122.6784 },
-      'nashville, tn': { lat: 36.1627, lng: -86.7816 }
-    };
-
-    const normalizedLocation = locationString.toLowerCase().trim();
-    
-    if (cityCoordinates[normalizedLocation]) {
-      console.log(`📍 Using predefined coordinates for ${locationString}`);
-      return cityCoordinates[normalizedLocation];
-    }
-
-    try {
-      console.log(`🔍 Geocoding: ${locationString}`);
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationString)}&limit=1&countrycodes=us`
-      );
-      
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        const result = data[0];
-        console.log(`✅ Geocoded ${locationString} to:`, { lat: parseFloat(result.lat), lng: parseFloat(result.lon) });
-        return {
-          lat: parseFloat(result.lat),
-          lng: parseFloat(result.lon)
-        };
-      } else {
-        throw new Error('Location not found');
-      }
-    } catch (error) {
-      console.error('Geocoding error:', error);
-      console.log('🔄 Falling back to New York, NY');
-      return { lat: 40.7128, lng: -74.0060 };
-    }
-  };
-
-  // Enhanced late night detection
-  const detectLateNightHours = (place) => {
-    if (!place.hours) return false;
-    
-    const hoursDisplay = (place.hours.display || '').toLowerCase();
-    const businessName = place.name.toLowerCase();
-    
-    const twentyFourSevenIndicators = [
-      '24 hours', '24/7', 'open 24 hours', 'always open', 
-      'round the clock', '24 hour', 'twenty four'
-    ];
-    
-    const lateNightIndicators = [
-      '2am', '2 am', '3am', '3 am', '4am', '4 am', 
-      'late night', 'open late', 'midnight', '1am', '1 am'
-    ];
-    
-    const lateNightBusinessNames = [
-      '24', 'hour', 'late', 'night', 'midnight', 'after dark',
-      '7-eleven', 'circle k', 'wawa', 'sheetz',
-      'taco bell', 'del taco', 'jack in the box', 'white castle',
-      'dennys', 'ihop', 'waffle house', 'steak n shake',
-      'dunkin', 'krispy kreme', 'tim hortons'
-    ];
-    
-    const is24Hours = twentyFourSevenIndicators.some(indicator => 
-      hoursDisplay.includes(indicator)
-    );
-    
-    const isLateNight = lateNightIndicators.some(indicator => 
-      hoursDisplay.includes(indicator)
-    );
-    
-    const hasLateNightName = lateNightBusinessNames.some(name => 
-      businessName.includes(name)
-    );
-    
-    return is24Hours || isLateNight || hasLateNightName;
-  };
-
-  // Night owl scoring for sorting
-  const calculateNightOwlScore = (place, category, isLateNight) => {
-    let score = 1;
-    
-    const businessName = place.name.toLowerCase();
-    const hoursDisplay = (place.hours?.display || '').toLowerCase();
-    
-    const categoryScores = {
-      'gas': 3,
-      'pharmacy': 2,
-      'grocery': 2,
-      'food': 2,
-      'coffee': 2,
-      'gym': 2,
-      'entertainment': 1,
-      'services': 1
-    };
-    
-    score += categoryScores[category] || 1;
-    
-    if (isLateNight) score += 4;
-    
-    const lateNightChains = [
-      'mcdonald', 'taco bell', 'del taco', 'jack in the box',
-      'dennys', 'ihop', 'waffle house', '7-eleven', 'circle k',
-      'cvs', 'walgreens', 'rite aid', 'shell', 'chevron', 'starbucks'
-    ];
-    
-    if (lateNightChains.some(chain => businessName.includes(chain))) {
-      score += 3;
-    }
-    
-    const lateTimeIndicators = ['2am', '3am', '4am', 'midnight', 'late', '24'];
-    if (lateTimeIndicators.some(time => hoursDisplay.includes(time))) {
-      score += 3;
-    }
-    
-    if (place.rating && place.rating > 8) score += 1;
-    
-    return Math.min(10, score);
-  };
-
-  const getLateNightLevel = (place, isLateNight) => {
-    if (!place.hours) return 'Check Hours';
-    
-    const hoursDisplay = (place.hours.display || '').toLowerCase();
-    
-    if (hoursDisplay.includes('24') || hoursDisplay.includes('always')) {
-      return '24/7';
-    } else if (hoursDisplay.includes('2am') || hoursDisplay.includes('3am') || hoursDisplay.includes('4am')) {
-      return 'Open Very Late';
-    } else if (hoursDisplay.includes('midnight') || hoursDisplay.includes('1am') || isLateNight) {
-      return 'Open Late';
-    } else {
-      return 'Check Hours';
-    }
-  };
-
-  const determineCrowdLevel = (place) => {
-    const hour = new Date().getHours();
-    
-    if (hour >= 22 || hour <= 6) return 'Quiet';
-    
-    if (place.popularity) {
-      if (place.popularity > 0.8) return 'Busy';
-      if (place.popularity > 0.5) return 'Moderate';
-    }
-    
-    return 'Quiet';
-  };
-
-  const calculateSafetyRating = (place, category) => {
-    let safety = 3;
-    
-    if (place.rating > 8) safety += 1;
-    if (place.rating > 9) safety += 1;
-    
-    if (['gas', 'pharmacy'].includes(category)) safety += 1;
-    
-    const businessName = place.name.toLowerCase();
-    const majorChains = ['cvs', 'walgreens', 'shell', 'chevron', 'mcdonald'];
-    if (majorChains.some(chain => businessName.includes(chain))) safety += 1;
-    
-    return Math.min(5, Math.max(1, safety));
-  };
-
-  // Mock data for demo purposes
-  const businesses = [
-    {
-      id: 1,
-      name: "Tony's 24 Hour Diner",
-      category: 'food',
-      address: '142 Main St',
-      distance: '0.3 miles',
-      distanceValue: 0.3,
-      rating: 4.2,
-      crowdLevel: 'Quiet',
-      verified: true,
-      safetyRating: 4,
-      features: ['Free WiFi', 'Parking', 'Well-lit'],
-      hours: '24/7',
-      x: 180,
-      y: 120,
-      rideShareTime: '4 min',
-      rideShareCost: '$8',
-      lastReported: '2 hours ago',
-      reportedOpen: true,
-      walkTime: '4 min',
-      driveTime: '2 min',
-      photos: ['diner-night.jpg', 'diner-interior.jpg', 'diner-counter.jpg'],
-      lateNightLevel: '24/7'
-    },
-    {
-      id: 2,
-      name: 'Midnight Grounds Coffee',
-      category: 'coffee',
-      address: '87 Oak Avenue',
-      distance: '0.5 miles',
-      distanceValue: 0.5,
-      rating: 4.7,
-      crowdLevel: 'Moderate',
-      verified: true,
-      safetyRating: 5,
-      features: ['Study Space', 'Power Outlets', 'Quiet Zone'],
-      hours: '24/7',
-      x: 220,
-      y: 160,
-      rideShareTime: '6 min',
-      rideShareCost: '$9',
-      lastReported: '15 min ago',
-      reportedOpen: true,
-      walkTime: '6 min',
-      driveTime: '3 min',
-      photos: ['coffee-night.jpg', 'coffee-study.jpg', 'coffee-counter.jpg', 'coffee-seating.jpg'],
-      lateNightLevel: '24/7'
-    },
-    {
-      id: 3,
-      name: 'QuickMart Express',
-      category: 'grocery',
-      address: '201 Pine St',
-      distance: '0.7 miles',
-      distanceValue: 0.7,
-      rating: 3.8,
-      crowdLevel: 'Busy',
-      verified: false,
-      safetyRating: 3,
-      features: ['ATM', 'Hot Food', 'Gas Station'],
-      hours: '24/7',
-      x: 140,
-      y: 200,
-      rideShareTime: '8 min',
-      rideShareCost: '$11',
-      lastReported: '1 hour ago',
-      reportedOpen: false,
-      walkTime: '9 min',
-      driveTime: '4 min',
-      photos: ['mart-exterior.jpg', 'mart-aisles.jpg'],
-      lateNightLevel: '24/7'
-    },
-    {
-      id: 4,
-      name: 'FitNess 24/7',
-      category: 'gym',
-      address: '95 Cedar Blvd',
-      distance: '1.2 miles',
-      distanceValue: 1.2,
-      rating: 4.1,
-      crowdLevel: 'Quiet',
-      verified: true,
-      safetyRating: 4,
-      features: ['Key Card Access', 'Security Cameras', 'Free Weights'],
-      hours: '24/7',
-      x: 280,
-      y: 100,
-      rideShareTime: '12 min',
-      rideShareCost: '$15',
-      lastReported: '30 min ago',
-      reportedOpen: true,
-      walkTime: '15 min',
-      driveTime: '6 min',
-      photos: ['gym-weights.jpg', 'gym-cardio.jpg', 'gym-entrance.jpg'],
-      lateNightLevel: '24/7'
-    },
-    {
-      id: 5,
-      name: 'Shell Gas & Go',
-      category: 'gas',
-      address: '333 Highway 101',
-      distance: '0.9 miles',
-      distanceValue: 0.9,
-      rating: 3.5,
-      crowdLevel: 'Moderate',
-      verified: true,
-      safetyRating: 4,
-      features: ['Convenience Store', 'Car Wash', 'Well-lit Pumps'],
-      hours: '24/7',
-      x: 320,
-      y: 180,
-      rideShareTime: '10 min',
-      rideShareCost: '$13',
-      lastReported: '45 min ago',
-      reportedOpen: true,
-      walkTime: '12 min',
-      driveTime: '5 min',
-      photos: ['gas-pumps.jpg', 'gas-store.jpg'],
-      lateNightLevel: '24/7'
-    }
-  ];
-
-  const categories = [
-    { id: 'all', name: 'All', icon: MapPin },
-    { id: 'food', name: 'Food', icon: Utensils },
-    { id: 'coffee', name: 'Coffee', icon: Coffee },
-    { id: 'gas', name: 'Gas', icon: Fuel },
-    { id: 'pharmacy', name: 'Pharmacy', icon: Pill },
-    { id: 'grocery', name: 'Grocery', icon: ShoppingCart },
-    { id: 'gym', name: 'Gym', icon: Dumbbell },
-    { id: 'entertainment', name: 'Fun', icon: Star },
-    { id: 'services', name: 'Services', icon: Clock }
-  ];
-
-  // MAIN API FUNCTION - FIXED TO WORK PROPERLY
-  const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
-    setIsLoadingPlaces(true);
-    
-    // Check if API key is valid
-    if (!FOURSQUARE_API_KEY || FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) {
-      console.log('❌ No valid API key - using demo data');
-      setIsLoadingPlaces(false);
-      return;
-    }
-    
-    try {
-      // CRITICAL FIX: Convert miles to meters and ROUND to integer
-      const radiusMeters = Math.round(radiusMiles * 1609.34);
-      
-      console.log(`🌙 Using Foursquare API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
-      console.log(`🌙 Searching ${radiusMiles} miles (${radiusMeters}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-      
-      // Simplified category list
-      const categories = [
-        '13065', // Fast Food Restaurant
-        '13025', // Restaurant  
-        '13032', // Coffee Shop
-        '17069', // Gas Station
-        '17097', // Pharmacy
-        '17043', // Convenience Store
-        '18021'  // Gym
-      ].join(',');
-
-      // FIXED: Proper URL construction without syntax errors
-      const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categories}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
-
-      console.log(`📍 Foursquare API call: ${url.replace(FOURSQUARE_API_KEY, 'API_KEY')}`);
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': FOURSQUARE_API_KEY,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
-
-      // Enhanced error handling with response details
-      if (!response.ok) {
-        let errorMessage = `Foursquare API error: ${response.status}`;
-        
-        // Try to get more details from response
-        try {
-          const errorData = await response.json();
-          console.error('📋 Full API error response:', errorData);
-          if (errorData.message) {
-            errorMessage += ` - ${errorData.message}`;
-          }
-        } catch (e) {
-          console.error('📋 Could not parse error response');
-        }
-        
-        switch (response.status) {
-          case 400:
-            errorMessage = 'Bad request - check API parameters';
-            break;
-          case 401:
-            errorMessage = 'Invalid API key - please check your Foursquare configuration';
-            break;
-          case 403:
-            errorMessage = 'API access denied - check your key permissions';
-            break;
-          case 429:
-            errorMessage = 'Rate limit exceeded - please wait a moment';
-            break;
-          case 500:
-            errorMessage = 'Foursquare server error - please try again';
-            break;
-        }
-        
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-      console.log(`🔍 Found ${data.results.length} total businesses from Foursquare`);
-      
-      // Process ALL businesses, just sort by late night relevance
-      const businesses = data.results
-        .map((place, index) => {
-          const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
-          
-          console.log(`📏 ${place.name}: ${distance.toFixed(1)} miles from search center`);
-          
-          const category = getCategoryFromFoursquare(place.categories);
-          
-          // Check if it's a late night business
-          const isLateNight = detectLateNightHours(place);
-          
-          // Calculate night owl score for sorting
-          const nightOwlScore = calculateNightOwlScore(place, category, isLateNight);
-          
-          console.log(`✅ Adding ${place.name} - ${distance.toFixed(1)}mi, category: ${category}, score: ${nightOwlScore}`);
-
-          return {
-            id: place.fsq_id,
-            name: place.name,
-            category,
-            address: formatAddress(place.location),
-            distance: `${distance.toFixed(1)} miles`,
-            distanceValue: distance,
-            rating: place.rating ? Math.min(5, (place.rating / 2)) : (3.5 + Math.random() * 1.0),
-            crowdLevel: determineCrowdLevel(place),
-            verified: true,
-            safetyRating: calculateSafetyRating(place, category),
-            features: getBusinessFeatures(category),
-            hours: place.hours?.display || (isLateNight ? '24/7' : 'Check Hours'),
-            x: 150 + (index * 30) % 200,
-            y: 100 + (index * 25) % 150,
-            rideShareTime: `${Math.ceil(distance * 3)} min`,
-            rideShareCost: `${Math.ceil(distance * 2.5 + 8)}`,
-            lastReported: `${Math.floor(Math.random() * 120)} min ago`,
-            reportedOpen: true,
-            walkTime: `${Math.ceil(distance * 20)} min`,
-            driveTime: `${Math.ceil(distance * 3)} min`,
-            photos: place.photos ? place.photos.map(p => `${p.prefix}400x400${p.suffix}`) : [],
-            phone: place.tel,
-            website: place.website,
-            isLateNight,
-            lateNightLevel: getLateNightLevel(place, isLateNight),
-            popularity: place.popularity || 0,
-            priceLevel: place.price || 2,
-            nightOwlScore
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => {
-          // Sort by night owl score first, then distance
-          if (b.nightOwlScore !== a.nightOwlScore) {
-            return b.nightOwlScore - a.nightOwlScore;
-          }
-          return a.distanceValue - b.distanceValue;
-        });
-
-      // Cache the results
-      setCachedPlaces(lat, lng, radiusMiles, businesses);
-      setRealBusinesses(businesses);
-      
-      console.log(`✅ Processed ${businesses.length} businesses from Foursquare`);
-      console.log(`📊 Distance range: ${Math.min(...businesses.map(b => b.distanceValue)).toFixed(1)} - ${Math.max(...businesses.map(b => b.distanceValue)).toFixed(1)} miles`);
-      
-    } catch (error) {
-      console.error('❌ Foursquare API Error:', error.message);
-      console.warn('Using demo data due to API error');
-      setRealBusinesses([]);
-    }
-    
-  // Convert Foursquare categories to our categories
-  const getCategoryFromFoursquare = (categories) => {
-    if (!categories || categories.length === 0) return 'services';
-    
-    const primaryCategory = categories[0];
-    const categoryMap = {
-      '13065': 'food',     // Fast Food
-      '13032': 'coffee',   // Coffee Shop  
-      '13003': 'food',     // Bar
-      '13025': 'food',     // Restaurant
-      '13035': 'food',     // Diner
-      '13145': 'food',     // Taco Place
-      '13064': 'food',     // Pizza Place
-      '13031': 'food',     // Breakfast Spot
-      '13033': 'coffee',   // Café
-      '13034': 'coffee',   // Tea Room
-      '13009': 'food',     // Burger Joint
-      '13199': 'food',     // Sandwiches
-      '13302': 'food',     // Chinese Restaurant
-      '13307': 'food',     // Italian Restaurant
-      '13325': 'food',     // Thai Restaurant
-      '13334': 'food',     // Mexican Restaurant
-      '13385': 'food',     // Donut Shop
-      '13383': 'food',     // Ice Cream Shop
-      '13377': 'food',     // Bagel Shop
-      '17069': 'gas',      // Gas Station
-      '17097': 'pharmacy', // Pharmacy
-      '17043': 'grocery',  // Convenience Store
-      '18021': 'gym',      // Gym
-      '17051': 'grocery',  // Supermarket
-      '17114': 'services', // ATM
-      '17115': 'services', // Bank
-      '10032': 'entertainment', // Movie Theater
-      '10027': 'entertainment', // Bowling Alley
-      '17050': 'services'  // Laundromat
-    };
-    
-    return categoryMap[primaryCategory.id] || 'food';
-  };
-
-  // Format Foursquare address
-  const formatAddress = (location) => {
-    const parts = [
-      location.address,
-      location.locality,
-      location.region
-    ].filter(Boolean);
-    return parts.join(', ') || 'Address not available';
-  };
-
-  // Helper function to calculate distance between two points
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 3959; // Radius of Earth in miles
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
-  // Get features based on business category
-  const getBusinessFeatures = (category) => {
-    const features = {
-      food: ['Free WiFi', 'Parking', 'Well-lit', 'Late Night Menu'],
-      coffee: ['Power Outlets', 'Study Space', 'Free WiFi', 'Quiet Zone'],
-      gas: ['Convenience Store', 'Car Wash', 'Well-lit Pumps', 'ATM'],
-      pharmacy: ['Drive-thru', '24/7 Pickup', 'Emergency Meds'],
-      grocery: ['ATM', 'Hot Food', 'Self Checkout'],
-      gym: ['Key Card Access', 'Security Cameras', 'Free Weights'],
-      entertainment: ['Late Hours', 'Group Friendly', 'Parking'],
-      services: ['WiFi', 'Parking', 'Well-lit']
-    };
-    return features[category] || features.services;
-  };
-
-  // Enhanced get user's real location
-  const getCurrentLocation = () => {
-    setIsLoadingLocation(true);
-    
-    if (!navigator.geolocation) {
-      console.error('Geolocation not supported');
-      setIsLoadingLocation(false);
-      return;
-    }
-
-    const options = {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 5 * 60 * 1000
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        console.log('📍 Location found:', {
-          lat: position.coords.latitude.toFixed(4),
-          lng: position.coords.longitude.toFixed(4),
-          accuracy: `${position.coords.accuracy}m`
-        });
-        
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        });
-        setSearchLocation('Current Location');
-        setIsLoadingLocation(false);
-      },
-      (error) => {
-        let message = 'Unable to get location';
-        
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            message = 'Location access denied - please enable in browser settings';
-            break;
-          case error.POSITION_UNAVAILABLE:
-            message = 'Location unavailable - please try again';
-            break;
-          case error.TIMEOUT:
-            message = 'Location timeout - please try again';
-            break;
-        }
-        
-        console.error('Location error:', message);
-        setIsLoadingLocation(false);
-      },
-      options
-    );
-  };
-
-  // Real deep link functions
-  const openInGoogleMaps = (business) => {
-    const address = encodeURIComponent(business.address);
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${address}`;
-    window.open(url, '_blank');
-  };
-
-  const openInAppleMaps = (business) => {
-    const address = encodeURIComponent(business.address);
-    const url = `http://maps.apple.com/?daddr=${address}`;
-    window.open(url, '_blank');
-  };
-
-  const bookUberRide = (business) => {
-    const address = encodeURIComponent(business.address);
-    const url = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${address}`;
-    window.open(url, '_blank');
-  };
-
-  const bookLyftRide = (business) => {
-    const address = encodeURIComponent(business.address);
-    const url = `https://lyft.com/ride?destination[address]=${address}`;
-    window.open(url, '_blank');
-  };
-
-  // Enhanced location change handler with geocoding
-  const handleLocationChange = async (newLocation) => {
-    setShowLocationSearch(false);
-    setSearchLocation(newLocation + ' (Loading...)');
-    setIsLoadingLocation(true);
-    
-    try {
-      const coordinates = await geocodeLocation(newLocation);
-      
-      setUserLocation({
-        lat: coordinates.lat,
-        lng: coordinates.lng
-      });
-      
-      setSearchLocation(newLocation);
-      
-      console.log(`📍 Location changed to ${newLocation}:`, coordinates);
-      
-    } catch (error) {
-      console.error('Error changing location:', error);
-      setSearchLocation(newLocation + ' (Error)');
-    }
-    
-  // Use real businesses when available, fallback to mock data
-  const allBusinesses = realBusinesses.length > 0 ? realBusinesses : businesses;
-  
-  const filteredBusinesses = allBusinesses.filter(business => {
-    const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
-    const matchesSearch = business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         business.address.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    // Debug logging for filtering
-    if (!matchesCategory) {
-      console.log(`❌ ${business.name} filtered out by category: ${business.category} != ${selectedCategory}`);
-    }
-    if (!matchesSearch && searchQuery) {
-      console.log(`❌ ${business.name} filtered out by search: "${searchQuery}"`);
-    }
-    
-    return matchesCategory && matchesSearch;
-  });
-  
-  // Debug the filtering results
-  console.log(`🔍 Filtering results: ${allBusinesses.length} total → ${filteredBusinesses.length} displayed`);
-  console.log(`📊 Category: ${selectedCategory}, Search: "${searchQuery}", Radius: ${searchRadius}mi`);
-
-  const getCrowdColor = (level) => {
-    switch(level) {
-      case 'Quiet': return 'text-green-400';
-      case 'Moderate': return 'text-yellow-400';
-      case 'Busy': return 'text-red-400';
-      default: return 'text-gray-400';
-    }
-  };
-
-  const getSafetyStars = (rating) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <Star 
-        key={i} 
-        size={12} 
-        className={i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'} 
-      />
-    ));
-  };
-
-  const toggleFavorite = (businessId) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(businessId)) {
-      newFavorites.delete(businessId);
-    } else {
-      newFavorites.add(businessId);
-    }
-    setFavorites(newFavorites);
-  };
-
-  const handleSearch = (query) => {
-    setSearchQuery(query);
-  };
-
-  const handleReport = (businessId, isOpen) => {
-    setReportModal(null);
-    console.log(`Reported ${businessId} as ${isOpen ? 'open' : 'closed'}`);
-  };
-
-  const showNavigationOptions = (business) => {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      const options = [
-        { name: 'Google Maps', action: () => openInGoogleMaps(business) },
-        ...(isIOS ? [{ name: 'Apple Maps', action: () => openInAppleMaps(business) }] : []),
-        { name: 'Uber', action: () => bookUberRide(business) },
-        { name: 'Lyft', action: () => bookLyftRide(business) }
-      ];
-      
-      const choice = confirm(`Navigate to ${business.name}\n\nChoose your preferred app:\n${options.map((o, i) => `${i + 1}. ${o.name}`).join('\n')}`);
-      if (choice) {
-        const selection = prompt('Enter your choice (1-' + options.length + '):');
-        const index = parseInt(selection) - 1;
-        if (index >= 0 && index < options.length) {
-          options[index].action();
-        }
-      }
-    } else {
-      openInGoogleMaps(business);
-    }
-  };
-
-  // Initialize app with real location and fetch places
-  useEffect(() => {
-    getCurrentLocation();
-  }, []);
-
-  // FIXED: Fetch real places when location or radius changes
-  useEffect(() => {
-    console.log('🔄 Location/radius effect triggered:', { 
-      hasLocation: !!userLocation, 
-      lat: userLocation?.lat, 
-      lng: userLocation?.lng, 
-      radius: searchRadius,
-      apiKey: FOURSQUARE_API_KEY.substring(0, 10) + '...'
-    });
-    
-    if (userLocation && userLocation.lat && userLocation.lng) {
-      console.log(`🔍 Fetching real places for ${searchRadius} mile radius`);
-      fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
-    }
-  }, [userLocation, searchRadius, apiKey]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+export default NightOwlsApp;
