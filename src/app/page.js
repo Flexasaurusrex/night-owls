@@ -256,32 +256,57 @@ const NightOwlsApp = () => {
 
   // NEW: Actually check if a business is open late based on real hours data
   const checkIfOpenLate = (hoursData) => {
-    if (!hoursData || !hoursData.regular) return false;
+    if (!hoursData) {
+      console.log('  No hours data');
+      return false;
+    }
+    
+    // Check display text first for obvious indicators
+    if (hoursData.display) {
+      const display = hoursData.display.toLowerCase();
+      if (display.includes('24 hours') || display.includes('24/7') || 
+          display.includes('2am') || display.includes('3am') || 
+          display.includes('2:00 am') || display.includes('3:00 am')) {
+        console.log('  Found late night in display text:', hoursData.display);
+        return true;
+      }
+    }
+    
+    // Check structured hours data
+    if (!hoursData.regular) {
+      console.log('  No regular hours data');
+      return false;
+    }
     
     try {
       // Check each day's hours
       for (const daySchedule of hoursData.regular) {
         if (daySchedule.open) {
           for (const timeSlot of daySchedule.open) {
-            // Check if end time is 2 AM (0200) or later, or if it's 24/7
+            const startTime = parseInt(timeSlot.start);
             const endTime = parseInt(timeSlot.end);
             
-            // 24/7 places (end time after start time next day)
-            if (endTime <= 600 && endTime < parseInt(timeSlot.start)) {
+            console.log(`  Checking time slot: ${timeSlot.start} - ${timeSlot.end}`);
+            
+            // 24/7 places (end time before start time = next day)
+            if (endTime < startTime) {
+              console.log('  Found 24/7 hours (spans next day)');
               return true;
             }
             
-            // Places open until 2 AM or later (0200 = 2:00 AM)
+            // Places open until 2 AM or later (0200 = 2:00 AM, etc.)
             if (endTime >= 200 && endTime <= 600) {
+              console.log(`  Found late night end time: ${endTime}`);
               return true;
             }
           }
         }
       }
     } catch (error) {
-      console.log('Error parsing hours:', error);
+      console.log('  Error parsing hours:', error);
     }
     
+    console.log('  No late night hours found');
     return false;
   };
 
@@ -392,7 +417,66 @@ const NightOwlsApp = () => {
     // Rating bonus
     if (place.rating && place.rating > 8) score += 2;
     
-    return Math.min(50, score);
+  // NEW: Get current day's specific hours
+  const getCurrentDayHours = (hoursData) => {
+    if (!hoursData) return 'Hours not available';
+    
+    // If there's a display string, use it
+    if (hoursData.display) {
+      return hoursData.display;
+    }
+    
+    // Try to get today's hours from structured data
+    if (hoursData.regular) {
+      try {
+        const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
+        
+        // Find today's schedule
+        for (const daySchedule of hoursData.regular) {
+          if (daySchedule.day === today && daySchedule.open && daySchedule.open.length > 0) {
+            const timeSlot = daySchedule.open[0]; // Get first time slot
+            const startTime = formatTime(timeSlot.start);
+            const endTime = formatTime(timeSlot.end);
+            
+            // Check if it spans to next day (late night)
+            if (parseInt(timeSlot.end) < parseInt(timeSlot.start)) {
+              return `${startTime} - ${endTime} (next day)`;
+            } else {
+              return `${startTime} - ${endTime}`;
+            }
+          }
+        }
+        
+        // Check if it's 24/7
+        const has24Hours = hoursData.regular.some(day => 
+          day.open && day.open.some(slot => 
+            parseInt(slot.end) < parseInt(slot.start) || 
+            (parseInt(slot.start) === 0 && parseInt(slot.end) === 2400)
+          )
+        );
+        
+        if (has24Hours) return '24/7';
+        
+      } catch (error) {
+        console.log('Error parsing today\'s hours:', error);
+      }
+    }
+    
+    return 'Check hours';
+  };
+
+  // Helper to format time from HHMM to readable format
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    
+    const time = timeString.toString().padStart(4, '0');
+    let hours = parseInt(time.substr(0, 2));
+    const minutes = time.substr(2, 2);
+    
+    if (hours === 0) return `12:${minutes} AM`;
+    if (hours < 12) return `${hours}:${minutes} AM`;
+    if (hours === 12) return `12:${minutes} PM`;
+    return `${hours - 12}:${minutes} PM`;
   };
 
   // Get user location
