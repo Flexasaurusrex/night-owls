@@ -7,7 +7,7 @@ const NightOwlsApp = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [favorites, setFavorites] = useState(new Set([2, 4]));
+  const [favorites, setFavorites] = useState(new Set());
   const [reportModal, setReportModal] = useState(null);
   const [searchRadius, setSearchRadius] = useState(5);
   const [userLocation, setUserLocation] = useState(null);
@@ -16,6 +16,7 @@ const NightOwlsApp = () => {
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [callModal, setCallModal] = useState(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   // FIXED: Use hardcoded API key (process not available in browser)
   const FOURSQUARE_API_KEY = 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
@@ -24,8 +25,16 @@ const NightOwlsApp = () => {
   const [placesCache, setPlacesCache] = useState(new Map());
   const CACHE_DURATION = 10 * 60 * 1000;
 
-  // Persist favorites
+  // FIXED: Prevent hydration mismatch
   useEffect(() => {
+    setIsMounted(true);
+    setCurrentTime(new Date());
+  }, []);
+
+  // FIXED: Load favorites after mount to prevent hydration issues
+  useEffect(() => {
+    if (!isMounted) return;
+    
     try {
       const savedFavorites = localStorage.getItem('nightowls_favorites');
       if (savedFavorites) {
@@ -34,16 +43,18 @@ const NightOwlsApp = () => {
     } catch (error) {
       console.log('Could not load favorites from storage');
     }
-  }, []);
+  }, [isMounted]);
 
   const saveFavorites = useCallback((newFavorites) => {
+    if (!isMounted) return;
+    
     try {
       localStorage.setItem('nightowls_favorites', JSON.stringify([...newFavorites]));
     } catch (error) {
       console.log('Could not save favorites to storage');
     }
     setFavorites(newFavorites);
-  }, []);
+  }, [isMounted]);
 
   // Cache utilities
   const getCacheKey = (lat, lng, radius) => `${lat.toFixed(4)}_${lng.toFixed(4)}_${radius}`;
@@ -586,21 +597,42 @@ const NightOwlsApp = () => {
     saveFavorites(newFavorites);
   };
 
-  // Effects
+  // Effects - FIXED: Prevent hydration mismatches
   useEffect(() => {
-    getCurrentLocation();
-  }, [getCurrentLocation]);
+    if (isMounted) {
+      getCurrentLocation();
+    }
+  }, [isMounted, getCurrentLocation]);
 
   useEffect(() => {
-    if (userLocation && userLocation.lat && userLocation.lng) {
+    if (isMounted && userLocation && userLocation.lat && userLocation.lng) {
       fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
     }
-  }, [userLocation, searchRadius]);
+  }, [isMounted, userLocation, searchRadius]);
 
   useEffect(() => {
+    if (!isMounted) return;
+    
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    // FIXED: Prevent hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-black text-white font-sans overflow-x-hidden flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center shadow-lg mx-auto mb-4">
+            <Navigation className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-2xl font-black bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent tracking-tight">
+            Night Owls
+          </h1>
+          <p className="text-sm text-gray-400 font-medium mt-2">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return () => clearInterval(timer);
+  }, [isMounted]);
 
   // Skeleton Loading Component
   const SkeletonLoader = () => (
@@ -673,7 +705,7 @@ const NightOwlsApp = () => {
             </button>
             <div className="text-right">
               <div className="text-lg font-mono font-bold text-purple-400 tracking-wider">
-                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {isMounted ? currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
               </div>
               <div className="text-xs text-gray-500 font-medium">
                 {userLocation ? (
@@ -1106,6 +1138,9 @@ const NightOwlsApp = () => {
       </div>
     </div>
   );
+};
+
+export default NightOwlsApp;
 };
 
 export default NightOwlsApp;
