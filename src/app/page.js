@@ -22,14 +22,29 @@ const NightOwlsApp = () => {
 
   // Helper functions
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 3959;
+    // Validate inputs
+    if (!lat1 || !lon1 || !lat2 || !lon2 || 
+        isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
+      console.error('Invalid coordinates:', { lat1, lon1, lat2, lon2 });
+      return null;
+    }
+    
+    const R = 3959; // Radius of Earth in miles
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
               Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
               Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+    const distance = R * c;
+    
+    // Validate result
+    if (isNaN(distance) || distance < 0) {
+      console.error('Invalid distance calculation result:', distance);
+      return null;
+    }
+    
+    return distance;
   };
 
   const formatAddress = (location) => {
@@ -77,32 +92,85 @@ const NightOwlsApp = () => {
   const checkIfOpenLate = (hoursData) => {
     if (!hoursData) return false;
     
+    // STRICT: Check display text for obvious late night indicators
     if (hoursData.display) {
       const display = hoursData.display.toLowerCase();
-      if (display.includes('24 hours') || display.includes('24/7') || 
-          display.includes('2am') || display.includes('3am')) {
+      
+      // 24/7 indicators
+      if (display.includes('24 hours') || display.includes('24/7') || display.includes('always open')) {
+        console.log('  ✅ Found 24/7 in display:', hoursData.display);
+        return true;
+      }
+      
+      // Late night indicators (1 AM or later)
+      if (display.includes('1:00 am') || display.includes('1 am') ||
+          display.includes('2:00 am') || display.includes('2 am') ||
+          display.includes('3:00 am') || display.includes('3 am') ||
+          display.includes('4:00 am') || display.includes('4 am')) {
+        console.log('  ✅ Found late hours in display:', hoursData.display);
+        return true;
+      }
+      
+      // Check for midnight or later
+      if (display.includes('midnight') || display.includes('12:00 am')) {
+        console.log('  ✅ Found midnight hours in display:', hoursData.display);
         return true;
       }
     }
     
-    if (!hoursData.regular) return false;
+    // STRICT: Check structured hours data
+    if (!hoursData.regular) {
+      console.log('  ❌ No regular hours data');
+      return false;
+    }
     
     try {
+      let hasLateNightHours = false;
+      
       for (const daySchedule of hoursData.regular) {
         if (daySchedule.open) {
           for (const timeSlot of daySchedule.open) {
             const startTime = parseInt(timeSlot.start);
             const endTime = parseInt(timeSlot.end);
-            if (endTime < startTime || (endTime >= 200 && endTime <= 600)) {
-              return true;
+            
+            console.log(`  🕐 Checking time slot: ${timeSlot.start} - ${timeSlot.end}`);
+            
+            // 24/7 places (end time before start time = next day)
+            if (endTime < startTime) {
+              console.log('  ✅ Found 24/7 hours (spans next day)');
+              hasLateNightHours = true;
+              break;
+            }
+            
+            // STRICT: Places open until 1 AM (0100) or later
+            // 0100 = 1:00 AM, 0200 = 2:00 AM, etc.
+            if (endTime >= 100 && endTime <= 600) {
+              console.log(`  ✅ Found late night end time: ${endTime} (${formatTime(timeSlot.end)})`);
+              hasLateNightHours = true;
+              break;
+            }
+            
+            // Special case: midnight (0000 or 2400)
+            if (endTime === 0 || endTime === 2400) {
+              console.log('  ✅ Found midnight closing');
+              hasLateNightHours = true;
+              break;
             }
           }
+          if (hasLateNightHours) break;
         }
       }
+      
+      if (!hasLateNightHours) {
+        console.log('  ❌ No late night hours found in structured data');
+      }
+      
+      return hasLateNightHours;
+      
     } catch (error) {
-      console.log('Error parsing hours:', error);
+      console.log('  ❌ Error parsing hours:', error);
+      return false;
     }
-    return false;
   };
 
   const analyzeLateNightHours = (hoursData) => {
@@ -113,16 +181,70 @@ const NightOwlsApp = () => {
     const display = hoursData.display || '';
     const displayLower = display.toLowerCase();
     
-    if (displayLower.includes('24 hours') || displayLower.includes('24/7')) {
+    // 24/7 detection
+    if (displayLower.includes('24 hours') || displayLower.includes('24/7') || 
+        displayLower.includes('always open') || displayLower.includes('open 24')) {
       return { level: '24/7', status: 'Open 24/7', display: '24/7' };
     }
     
-    if (displayLower.includes('2:00 am') || displayLower.includes('3:00 am')) {
-      return { level: 'Open Very Late', status: 'Open until 2-3 AM', display };
+    // Very late night (3AM+)
+    if (displayLower.includes('3:00 am') || displayLower.includes('3 am') ||
+        displayLower.includes('4:00 am') || displayLower.includes('4 am') ||
+        displayLower.includes('5:00 am') || displayLower.includes('5 am')) {
+      return { level: 'Open Very Late', status: 'Open until 3AM+', display };
     }
     
-    if (displayLower.includes('1:00 am') || displayLower.includes('midnight')) {
-      return { level: 'Open Late', status: 'Open until midnight-1 AM', display };
+    // Late night (1-2AM)
+    if (displayLower.includes('1:00 am') || displayLower.includes('1 am') ||
+        displayLower.includes('2:00 am') || displayLower.includes('2 am') ||
+        displayLower.includes('midnight') || displayLower.includes('12:00 am')) {
+      return { level: 'Open Late', status: 'Open until 1-2AM', display };
+    }
+    
+    // Check structured hours for late night times
+    if (hoursData.regular) {
+      try {
+        let latestEnd = 0;
+        let is24Hour = false;
+        
+        for (const daySchedule of hoursData.regular) {
+          if (daySchedule.open) {
+            for (const timeSlot of daySchedule.open) {
+              const startTime = parseInt(timeSlot.start);
+              const endTime = parseInt(timeSlot.end);
+              
+              // 24/7 detection
+              if (endTime < startTime) {
+                is24Hour = true;
+              }
+              
+              // Track latest closing time in late night range
+              if (endTime >= 100 && endTime <= 600) {
+                latestEnd = Math.max(latestEnd, endTime);
+              }
+              
+              // Special case for midnight
+              if (endTime === 0 || endTime === 2400) {
+                latestEnd = Math.max(latestEnd, 0);
+              }
+            }
+          }
+        }
+        
+        if (is24Hour) {
+          return { level: '24/7', status: 'Open 24/7', display: '24 hours' };
+        }
+        
+        if (latestEnd >= 300) {
+          return { level: 'Open Very Late', status: 'Open until 3AM+', display: `Until ${formatTime(latestEnd.toString())}` };
+        }
+        
+        if (latestEnd >= 100 || latestEnd === 0) {
+          return { level: 'Open Late', status: 'Open until 1AM+', display: `Until ${latestEnd === 0 ? 'midnight' : formatTime(latestEnd.toString())}` };
+        }
+      } catch (error) {
+        console.log('Error analyzing structured hours:', error);
+      }
     }
     
     return { level: 'Check Hours', status: 'Hours unknown', display: display || 'Check hours' };
