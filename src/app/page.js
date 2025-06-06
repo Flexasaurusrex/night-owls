@@ -116,8 +116,8 @@ const NightOwlsApp = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [callModal, setCallModal] = useState(null);
 
-  // FOURSQUARE API KEY
-  const FOURSQUARE_API_KEY = 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
+  // FIXED: Use environment variable with fallback
+  const FOURSQUARE_API_KEY = process.env.NEXT_PUBLIC_FOURSQUARE_API_KEY || process.env.FOURSQUARE_API_KEY || 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
 
   // Enhanced in-memory cache with expiration
   const [placesCache, setPlacesCache] = useState(new Map());
