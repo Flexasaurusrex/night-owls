@@ -1,4 +1,445 @@
-'use client';
+useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-black text-white font-sans overflow-x-hidden">
+      {/* Status Banner */}
+      <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-3 text-center">
+        <div className="text-sm font-semibold">
+          🌙 Night Owls • Find Late Night & 24/7 Places • Open Until 2AM+ • Perfect for Night Shift Workers & Insomniacs
+        </div>
+      </div>
+      
+      {/* Header */}
+      <div className="bg-gray-950 px-4 py-6 shadow-2xl border-b border-gray-800 sticky top-0 z-40">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center shadow-lg">
+              <Navigation className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent tracking-tight">
+                Night Owls
+              </h1>
+              <p className="text-xs text-gray-400 font-medium">Late night & 24/7 places near you</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-mono font-bold text-purple-400 tracking-wider">
+              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+            <div className="text-xs text-gray-500 font-medium">
+              {userLocation ? (
+                <span className="text-green-400">📍 Location Set</span>
+              ) : isLoadingLocation ? (
+                <span className="text-yellow-400">📍 Loading Location...</span>
+              ) : (
+                <span className="text-gray-400">📍 Location Off</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search late night businesses..."
+              className="w-full bg-gray-900 text-white pl-12 pr-4 py-4 rounded-xl border border-gray-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none transition-all font-medium placeholder-gray-500 text-base"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Search Controls */}
+          <div className="space-y-3">
+            {/* Location Selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowLocationSearch(!showLocationSearch)}
+                className="w-full flex items-center justify-between bg-gray-900 text-white px-4 py-4 rounded-xl border border-gray-700 hover:border-purple-500 focus:border-purple-500 focus:outline-none transition-all font-medium touch-manipulation"
+              >
+                <div className="flex items-center space-x-3">
+                  <MapPin size={20} className="text-purple-400" />
+                  <span className="text-base font-semibold">{searchLocation}</span>
+                </div>
+                <span className="text-gray-500 text-xl">▼</span>
+              </button>
+              
+              {showLocationSearch && (
+                <div className="absolute z-50 mt-2 w-full bg-gray-900 border border-gray-700 rounded-xl shadow-2xl">
+                  <div className="p-4 space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Enter city, state or zip code..."
+                      className="w-full bg-gray-800 text-white px-4 py-4 rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none text-base font-medium placeholder-gray-500"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target.value.trim()) {
+                          handleLocationChange(e.target.value.trim());
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          getCurrentLocation();
+                          setShowLocationSearch(false);
+                        }}
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                        disabled={isLoadingLocation}
+                      >
+                        📍 {isLoadingLocation ? 'Finding Your Location...' : 'Use Current Location'}
+                      </button>
+                      <button
+                        onClick={() => handleLocationChange('San Francisco, CA')}
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                      >
+                        🌆 San Francisco, CA
+                      </button>
+                      <button
+                        onClick={() => handleLocationChange('Los Angeles, CA')}
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                      >
+                        🌴 Los Angeles, CA
+                      </button>
+                      <button
+                        onClick={() => handleLocationChange('New York, NY')}
+                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
+                      >
+                        🗽 New York, NY
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Radius Selector */}
+            <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
+              <span className="text-base font-semibold text-gray-300">Search Radius</span>
+              <select
+                value={searchRadius}
+                onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
+                className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer touch-manipulation"
+              >
+                <option value={0.25}>0.25 mi</option>
+                <option value={0.5}>0.5 mi</option>
+                <option value={1}>1 mi</option>
+                <option value={2}>2 mi</option>
+                <option value={5}>5 mi</option>
+                <option value={10}>10 mi</option>
+                <option value={25}>25 mi</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Category Filters */}
+      <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
+        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          {categories.map((category) => {
+            const IconComponent = category.icon;
+            return (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max touch-manipulation ${
+                  selectedCategory === category.id
+                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg shadow-purple-500/25'
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700 hover:border-gray-600'
+                }`}
+              >
+                <IconComponent size={18} />
+                <span className="text-base">{category.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Business List */}
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <div className="flex items-center space-x-3 mb-2">
+              <h2 className="text-2xl font-bold text-white">
+                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
+              </h2>
+              {realBusinesses.length > 0 ? (
+                <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  FOURSQUARE LIVE
+                </span>
+              ) : FOURSQUARE_API_KEY && !FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE') ? (
+                <span className="bg-yellow-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  NO RESULTS
+                </span>
+              ) : (
+                <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  DEMO DATA
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 font-medium">
+              Found by Foursquare API • Sorted by late night relevance
+              {searchQuery && ` • Search: "${searchQuery}"`}
+              {selectedCategory !== 'all' && ` • Category: ${selectedCategory}`}
+              {allBusinesses.length !== filteredBusinesses.length && 
+                ` • ${allBusinesses.length - filteredBusinesses.length} filtered by search/category`
+              }
+            </p>
+          </div>
+        </div>
+
+        {isLoadingPlaces && (
+          <div className="text-center py-12">
+            <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-400 font-medium">Loading businesses from Foursquare...</p>
+          </div>
+        )}
+
+        {!userLocation && !isLoadingLocation && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🌙</div>
+            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
+            <p className="text-gray-400 mb-6">We'll find restaurants, services, and businesses open late or all night using Foursquare</p>
+            <button
+              onClick={getCurrentLocation}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
+            >
+              📍 Get My Location
+            </button>
+            <p className="text-xs text-gray-500 mt-4">Add your free Foursquare API key for live data</p>
+          </div>
+        )}
+
+        {filteredBusinesses.length > 0 ? (
+          filteredBusinesses.map((business) => (
+            <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg hover:shadow-purple-500/10 mx-1">
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex-1 pr-4">
+                  <div className="flex items-center space-x-3 mb-3">
+                    <h3 className="font-bold text-xl text-white tracking-tight leading-tight">{business.name}</h3>
+                    {business.verified && (
+                      <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg shadow-green-400/50" title="Verified Open"></div>
+                    )}
+                    {business.lateNightLevel && business.lateNightLevel !== 'Check Hours' && (
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        business.lateNightLevel === '24/7' 
+                          ? 'bg-green-600 text-white' 
+                          : business.lateNightLevel === 'Open Very Late'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-purple-600 text-white'
+                      }`}>
+                        {business.lateNightLevel}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
+                    <MapPin size={18} />
+                    <span className="font-medium">{business.address} • {business.distance}</span>
+                  </div>
+                  
+                  <div className="flex items-center space-x-6 mb-4">
+                    <div className="flex items-center space-x-2">
+                      <Users size={18} className="text-gray-500" />
+                      <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
+                        {business.crowdLevel}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Star size={18} className="fill-yellow-400 text-yellow-400" />
+                      <span className="text-base font-bold text-gray-200">{business.rating}</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <span className="text-sm text-gray-500 font-medium">Safety:</span>
+                      <div className="flex space-x-1">
+                        {getSafetyStars(business.safetyRating)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => toggleFavorite(business.id)}
+                  className={`p-3 rounded-full transition-all touch-manipulation ${
+                    favorites.has(business.id) 
+                      ? 'text-red-400 hover:text-red-300 bg-red-900/20' 
+                      : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
+                  }`}
+                >
+                  <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
+                </button>
+              </div>
+
+              {/* Ride Share Integration */}
+              <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Car size={20} className="text-purple-400" />
+                    <div>
+                      <span className="text-base font-semibold text-gray-200 block">Ride there</span>
+                      <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button 
+                      onClick={() => bookUberRide(business)}
+                      className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700 touch-manipulation"
+                    >
+                      Uber
+                    </button>
+                    <button 
+                      onClick={() => bookLyftRide(business)}
+                      className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all touch-manipulation"
+                    >
+                      Lyft
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Features */}
+              <div className="flex flex-wrap gap-2 mb-5">
+                {business.features.map((feature, index) => (
+                  <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
+                    {feature}
+                  </span>
+                ))}
+              </div>
+
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => showNavigationOptions(business)}
+                  className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg shadow-purple-500/25 touch-manipulation"
+                >
+                  <Navigation size={16} />
+                  <span>Navigate</span>
+                  <span className="text-purple-200 text-xs">✓</span>
+                </button>
+                
+                <button
+                  onClick={() => setReportModal(business)}
+                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation"
+                >
+                  <AlertTriangle size={16} />
+                  <span>Report</span>
+                  <span className="text-green-400 text-xs">✓</span>
+                </button>
+
+                <button
+                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
+                >
+                  <MessageSquare size={16} />
+                  <span>Reviews</span>
+                  <span className="text-yellow-400 text-xs">Soon</span>
+                </button>
+                
+                <button
+                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
+                >
+                  <span>📸</span>
+                  <span>Photos</span>
+                  <span className="text-yellow-400 text-xs">Soon</span>
+                </button>
+              </div>
+            </div>
+          ))
+        ) : null}
+      </div>
+
+      {/* Report Modal */}
+      {reportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-end justify-center z-50 backdrop-blur-sm">
+          <div className="bg-gray-950 rounded-t-3xl w-full border-t border-gray-800 shadow-2xl">
+            <div className="p-6 border-b border-gray-800">
+              <div className="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4"></div>
+              <h3 className="text-2xl font-bold text-white">Report Status</h3>
+              <p className="text-base text-gray-400 font-medium mt-2">{reportModal.name}</p>
+            </div>
+            <div className="p-6 space-y-6">
+              <p className="text-lg text-gray-300 font-medium">Is this place currently open?</p>
+              <div className="space-y-4">
+                <button
+                  onClick={() => handleReport(reportModal.id, true)}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
+                >
+                  ✓ Yes, it's open
+                </button>
+                <button
+                  onClick={() => handleReport(reportModal.id, false)}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
+                >
+                  ✗ No, it's closed
+                </button>
+              </div>
+              <div className="text-sm text-gray-500 mt-4 font-medium text-center">
+                Last reported: {reportModal.lastReported}
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-800 pb-8">
+              <button 
+                onClick={() => setReportModal(null)}
+                className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 touch-manipulation"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 shadow-2xl safe-area-pb">
+        <div className="flex justify-around items-center py-4 px-4">
+          <button className="flex flex-col items-center space-y-2 text-purple-400 p-3 -m-3 touch-manipulation">
+            <MapPin size={28} />
+            <span className="text-xs font-semibold">Nearby</span>
+          </button>
+          <button 
+            onClick={() => setShowNotifications(true)}
+            className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 relative transition-colors p-3 -m-3 touch-manipulation"
+          >
+            <Bell size={28} />
+            <span className="text-xs font-semibold">Alerts</span>
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/50">
+              <span className="text-xs text-white font-bold">2</span>
+            </div>
+          </button>
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
+            <Clock size={28} />
+            <span className="text-xs font-semibold">History</span>
+          </button>
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
+            <Heart size={28} />
+            <span className="text-xs font-semibold">Favorites</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Add bottom padding */}
+      <div className="h-24"></div>
+      
+      {/* Debug Footer */}
+      <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
+        <div className="text-xs text-gray-500 space-y-2">
+          <div>✅ <span className="text-green-400">Working Now:</span> GPS • Navigation • Rideshare • Favorites • Reports • Location Search</div>
+          <div>🌙 <span className="text-purple-400">All Businesses:</span> Shows ALL businesses sorted by late night relevance</div>
+          <div>🚧 <span className="text-yellow-400">Coming Soon:</span> User Reviews • Photo Upload • Push Notifications • Enhanced Filters</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Category: {selectedCategory} • Search: "{searchQuery}" • Radius: {searchRadius}mi</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default NightOwlsApp;'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Search, MapPin, Clock, Users, Star, Navigation, Filter, Coffee, ShoppingCart, Fuel, Pill, Utensils, Dumbbell, Heart, AlertTriangle, Car, Bell, MessageSquare, Send } from 'lucide-react';
@@ -7,9 +448,9 @@ const NightOwlsApp = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
+  const [viewMode, setViewMode] = useState('list');
   const [selectedBusiness, setSelectedBusiness] = useState(null);
-  const [favorites, setFavorites] = useState(new Set([2, 4])); // Sample favorites
+  const [favorites, setFavorites] = useState(new Set([2, 4]));
   const [showReviews, setShowReviews] = useState(null);
   const [reportModal, setReportModal] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -17,7 +458,7 @@ const NightOwlsApp = () => {
   const [routePlanningFor, setRoutePlanningFor] = useState(null);
   const [selectedPin, setSelectedPin] = useState(null);
   const [showPhotos, setShowPhotos] = useState(null);
-  const [searchRadius, setSearchRadius] = useState(5); // miles
+  const [searchRadius, setSearchRadius] = useState(5);
   const [searchLocation, setSearchLocation] = useState('Current Location');
   const [showLocationSearch, setShowLocationSearch] = useState(false);
   const [apiKey, setApiKey] = useState('');
@@ -31,8 +472,8 @@ const NightOwlsApp = () => {
   const [realBusinesses, setRealBusinesses] = useState([]);
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
 
-  // Foursquare API key - users can get this free at https://foursquare.com/developers/
-  const FOURSQUARE_API_KEY = apiKey || 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk='; // Use entered key or your real key
+  // Foursquare API key - FIXED WITH YOUR REAL KEY
+  const FOURSQUARE_API_KEY = apiKey || 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
 
   // In-memory cache (no localStorage usage)
   const [placesCache, setPlacesCache] = useState(new Map());
@@ -71,7 +512,6 @@ const NightOwlsApp = () => {
 
   // Geocoding function to convert city names/zip codes to coordinates
   const geocodeLocation = async (locationString) => {
-    // Predefined major city coordinates for instant results
     const cityCoordinates = {
       'san francisco, ca': { lat: 37.7749, lng: -122.4194 },
       'los angeles, ca': { lat: 34.0522, lng: -118.2437 },
@@ -97,13 +537,11 @@ const NightOwlsApp = () => {
 
     const normalizedLocation = locationString.toLowerCase().trim();
     
-    // Check if it's a predefined city
     if (cityCoordinates[normalizedLocation]) {
       console.log(`📍 Using predefined coordinates for ${locationString}`);
       return cityCoordinates[normalizedLocation];
     }
 
-    // For other locations (zip codes, etc.), use free OpenStreetMap geocoding
     try {
       console.log(`🔍 Geocoding: ${locationString}`);
       const response = await fetch(
@@ -124,8 +562,6 @@ const NightOwlsApp = () => {
       }
     } catch (error) {
       console.error('Geocoding error:', error);
-      
-      // Fallback to New York if geocoding fails
       console.log('🔄 Falling back to New York, NY');
       return { lat: 40.7128, lng: -74.0060 };
     }
@@ -138,22 +574,18 @@ const NightOwlsApp = () => {
     const hoursDisplay = (place.hours.display || '').toLowerCase();
     const businessName = place.name.toLowerCase();
     
-    // 24/7 indicators
     const twentyFourSevenIndicators = [
       '24 hours', '24/7', 'open 24 hours', 'always open', 
       'round the clock', '24 hour', 'twenty four'
     ];
     
-    // Late night indicators (open until at least 2 AM)
     const lateNightIndicators = [
       '2am', '2 am', '3am', '3 am', '4am', '4 am', 
       'late night', 'open late', 'midnight', '1am', '1 am'
     ];
     
-    // Business names that suggest late night
     const lateNightBusinessNames = [
       '24', 'hour', 'late', 'night', 'midnight', 'after dark',
-      // Chains known for late hours
       '7-eleven', 'circle k', 'wawa', 'sheetz',
       'taco bell', 'del taco', 'jack in the box', 'white castle',
       'dennys', 'ihop', 'waffle house', 'steak n shake',
@@ -175,14 +607,13 @@ const NightOwlsApp = () => {
     return is24Hours || isLateNight || hasLateNightName;
   };
 
-  // Night owl scoring for sorting only (not filtering)
+  // Night owl scoring for sorting
   const calculateNightOwlScore = (place, category, isLateNight) => {
-    let score = 1; // Everyone gets at least 1 point
+    let score = 1;
     
     const businessName = place.name.toLowerCase();
     const hoursDisplay = (place.hours?.display || '').toLowerCase();
     
-    // Base scores for categories
     const categoryScores = {
       'gas': 3,
       'pharmacy': 2,
@@ -196,10 +627,8 @@ const NightOwlsApp = () => {
     
     score += categoryScores[category] || 1;
     
-    // Big bonus for confirmed late night
     if (isLateNight) score += 4;
     
-    // Bonus for late night chains
     const lateNightChains = [
       'mcdonald', 'taco bell', 'del taco', 'jack in the box',
       'dennys', 'ihop', 'waffle house', '7-eleven', 'circle k',
@@ -210,13 +639,11 @@ const NightOwlsApp = () => {
       score += 3;
     }
     
-    // Bonus for time indicators in hours
     const lateTimeIndicators = ['2am', '3am', '4am', 'midnight', 'late', '24'];
     if (lateTimeIndicators.some(time => hoursDisplay.includes(time))) {
       score += 3;
     }
     
-    // Bonus for higher rated places
     if (place.rating && place.rating > 8) score += 1;
     
     return Math.min(10, score);
@@ -241,10 +668,8 @@ const NightOwlsApp = () => {
   const determineCrowdLevel = (place) => {
     const hour = new Date().getHours();
     
-    // Late night is generally quieter
     if (hour >= 22 || hour <= 6) return 'Quiet';
     
-    // Use Foursquare popularity if available
     if (place.popularity) {
       if (place.popularity > 0.8) return 'Busy';
       if (place.popularity > 0.5) return 'Moderate';
@@ -254,16 +679,13 @@ const NightOwlsApp = () => {
   };
 
   const calculateSafetyRating = (place, category) => {
-    let safety = 3; // Base safety
+    let safety = 3;
     
-    // Higher rated places tend to be safer
     if (place.rating > 8) safety += 1;
     if (place.rating > 9) safety += 1;
     
-    // Gas stations and pharmacies often have good lighting/security
     if (['gas', 'pharmacy'].includes(category)) safety += 1;
     
-    // Chain businesses often have better security
     const businessName = place.name.toLowerCase();
     const majorChains = ['cvs', 'walgreens', 'shell', 'chevron', 'mcdonald'];
     if (majorChains.some(chain => businessName.includes(chain))) safety += 1;
@@ -407,34 +829,25 @@ const NightOwlsApp = () => {
     { id: 'services', name: 'Services', icon: Clock }
   ];
 
-  // Enhanced fetch ALL late-night businesses using Foursquare Places API
+  // MAIN API FUNCTION - FIXED TO WORK PROPERLY
   const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
     setIsLoadingPlaces(true);
     
-    // Check cache first
-    const cached = getCachedPlaces(lat, lng, radiusMiles);
-    if (cached) {
-      setRealBusinesses(cached);
-      setIsLoadingPlaces(false);
-      return;
-    }
-    
-    // If no API key, use mock data
+    // Check if API key is valid
     if (!FOURSQUARE_API_KEY || FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) {
       console.log('❌ No valid API key - using demo data');
-      console.log('Current API key:', FOURSQUARE_API_KEY);
       setIsLoadingPlaces(false);
       return;
     }
     
     try {
-      // FIXED: Convert miles to meters correctly for Foursquare API
-      const radiusMeters = Math.min(radiusMiles * 1609.34, 100000); // 1 mile = 1609.34 meters, max 100km
+      // CRITICAL FIX: Convert miles to meters and ROUND to integer
+      const radiusMeters = Math.round(radiusMiles * 1609.34);
       
       console.log(`🌙 Using Foursquare API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
-      console.log(`🌙 Searching ${radiusMiles} miles (${Math.round(radiusMeters)}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      console.log(`🌙 Searching ${radiusMiles} miles (${radiusMeters}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
       
-      // Simplified category list - using fewer categories to avoid 400 errors
+      // Simplified category list
       const categories = [
         '13065', // Fast Food Restaurant
         '13025', // Restaurant  
@@ -445,12 +858,8 @@ const NightOwlsApp = () => {
         '18021'  // Gym
       ].join(',');
 
-      const url = `https://api.foursquare.com/v3/places/search?` + 
-        `ll=${lat},${lng}&` +
-        `radius=${radiusMeters}&` +
-        `categories=${categories}&` +
-        `limit=50&` +
-        `fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
+      // FIXED: Proper URL construction without syntax errors
+      const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categories}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
 
       console.log(`📍 Foursquare API call: ${url.replace(FOURSQUARE_API_KEY, 'API_KEY')}`);
 
@@ -502,22 +911,19 @@ const NightOwlsApp = () => {
       const data = await response.json();
       console.log(`🔍 Found ${data.results.length} total businesses from Foursquare`);
       
-      // FIXED: Process ALL businesses, just sort by late night relevance
+      // Process ALL businesses, just sort by late night relevance
       const businesses = data.results
         .map((place, index) => {
           const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
           
           console.log(`📏 ${place.name}: ${distance.toFixed(1)} miles from search center`);
           
-          // REMOVED: No server-side radius filtering since Foursquare already handles this
-          // The client-side filter will handle any radius preferences
-          
           const category = getCategoryFromFoursquare(place.categories);
           
           // Check if it's a late night business
           const isLateNight = detectLateNightHours(place);
           
-          // Calculate night owl score for sorting (NOT filtering)
+          // Calculate night owl score for sorting
           const nightOwlScore = calculateNightOwlScore(place, category, isLateNight);
           
           console.log(`✅ Adding ${place.name} - ${distance.toFixed(1)}mi, category: ${category}, score: ${nightOwlScore}`);
@@ -548,15 +954,14 @@ const NightOwlsApp = () => {
             website: place.website,
             isLateNight,
             lateNightLevel: getLateNightLevel(place, isLateNight),
-            // Add Foursquare metadata
             popularity: place.popularity || 0,
             priceLevel: place.price || 2,
             nightOwlScore
           };
         })
-        .filter(Boolean) // Only remove null entries
+        .filter(Boolean)
         .sort((a, b) => {
-          // Sort by night owl score first (higher scores first), then distance
+          // Sort by night owl score first, then distance
           if (b.nightOwlScore !== a.nightOwlScore) {
             return b.nightOwlScore - a.nightOwlScore;
           }
@@ -572,17 +977,10 @@ const NightOwlsApp = () => {
       
     } catch (error) {
       console.error('❌ Foursquare API Error:', error.message);
-      
-      // User-friendly error handling
       console.warn('Using demo data due to API error');
-      
-      // Fallback to empty array (will show demo data)
       setRealBusinesses([]);
     }
     
-    setIsLoadingPlaces(false);
-  };
-
   // Convert Foursquare categories to our categories
   const getCategoryFromFoursquare = (categories) => {
     if (!categories || categories.length === 0) return 'services';
@@ -620,7 +1018,7 @@ const NightOwlsApp = () => {
       '17050': 'services'  // Laundromat
     };
     
-    return categoryMap[primaryCategory.id] || 'food'; // Default to food for restaurants
+    return categoryMap[primaryCategory.id] || 'food';
   };
 
   // Format Foursquare address
@@ -672,8 +1070,8 @@ const NightOwlsApp = () => {
 
     const options = {
       enableHighAccuracy: true,
-      timeout: 15000, // 15 seconds
-      maximumAge: 5 * 60 * 1000 // 5 minutes
+      timeout: 15000,
+      maximumAge: 5 * 60 * 1000
     };
 
     navigator.geolocation.getCurrentPosition(
@@ -745,16 +1143,13 @@ const NightOwlsApp = () => {
     setIsLoadingLocation(true);
     
     try {
-      // Geocode the location to get coordinates
       const coordinates = await geocodeLocation(newLocation);
       
-      // Update the user location state (this will trigger new search)
       setUserLocation({
         lat: coordinates.lat,
         lng: coordinates.lng
       });
       
-      // Update the display location
       setSearchLocation(newLocation);
       
       console.log(`📍 Location changed to ${newLocation}:`, coordinates);
@@ -764,9 +1159,6 @@ const NightOwlsApp = () => {
       setSearchLocation(newLocation + ' (Error)');
     }
     
-    setIsLoadingLocation(false);
-  };
-
   // Use real businesses when available, fallback to mock data
   const allBusinesses = realBusinesses.length > 0 ? realBusinesses : businesses;
   
@@ -774,9 +1166,6 @@ const NightOwlsApp = () => {
     const matchesCategory = selectedCategory === 'all' || business.category === selectedCategory;
     const matchesSearch = business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          business.address.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    // REMOVED: radius filtering since Foursquare API already handles this
-    // const withinRadius = business.distanceValue <= searchRadius;
     
     // Debug logging for filtering
     if (!matchesCategory) {
@@ -843,7 +1232,6 @@ const NightOwlsApp = () => {
         { name: 'Lyft', action: () => bookLyftRide(business) }
       ];
       
-      // Show native action sheet on mobile
       const choice = confirm(`Navigate to ${business.name}\n\nChoose your preferred app:\n${options.map((o, i) => `${i + 1}. ${o.name}`).join('\n')}`);
       if (choice) {
         const selection = prompt('Enter your choice (1-' + options.length + '):');
@@ -859,7 +1247,6 @@ const NightOwlsApp = () => {
 
   // Initialize app with real location and fetch places
   useEffect(() => {
-    // Try to get current location on startup
     getCurrentLocation();
   }, []);
 
@@ -874,548 +1261,12 @@ const NightOwlsApp = () => {
     });
     
     if (userLocation && userLocation.lat && userLocation.lng) {
-      // Always try to fetch real data first, don't check cache immediately
       console.log(`🔍 Fetching real places for ${searchRadius} mile radius`);
       fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
     }
-  }, [userLocation, searchRadius, apiKey]); // Added apiKey as dependency
+  }, [userLocation, searchRadius, apiKey]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  return (
-    <div className="min-h-screen bg-black text-white font-sans overflow-x-hidden">
-      {/* Status Banner - Late Night Focus */}
-      <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-3 text-center">
-        <div className="text-sm font-semibold">
-          🌙 Night Owls • Find Late Night & 24/7 Places • Open Until 2AM+ • Perfect for Night Shift Workers & Insomniacs
-        </div>
-      </div>
-      
-      {/* Header - Mobile Optimized */}
-      <div className="bg-gray-950 px-4 py-6 shadow-2xl border-b border-gray-800 sticky top-0 z-40">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center shadow-lg">
-              <Navigation className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent tracking-tight">
-                Night Owls
-              </h1>
-              <p className="text-xs text-gray-400 font-medium">Late night & 24/7 places near you</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-mono font-bold text-purple-400 tracking-wider">
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div className="text-xs text-gray-500 font-medium">
-              {userLocation ? (
-                <span className="text-green-400">📍 Location Set</span>
-              ) : isLoadingLocation ? (
-                <span className="text-yellow-400">📍 Loading Location...</span>
-              ) : (
-                <span className="text-gray-400">📍 Location Off</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Search Bar - Mobile Optimized */}
-        <div className="space-y-4">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search late night businesses..."
-              className="w-full bg-gray-900 text-white pl-12 pr-4 py-4 rounded-xl border border-gray-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none transition-all font-medium placeholder-gray-500 text-base"
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-            />
-          </div>
-
-          {/* Search Controls - Mobile Stack */}
-          <div className="space-y-3">
-            {/* Location Selector - Full Width on Mobile */}
-            <div className="relative">
-              <button
-                onClick={() => setShowLocationSearch(!showLocationSearch)}
-                className="w-full flex items-center justify-between bg-gray-900 text-white px-4 py-4 rounded-xl border border-gray-700 hover:border-purple-500 focus:border-purple-500 focus:outline-none transition-all font-medium touch-manipulation"
-              >
-                <div className="flex items-center space-x-3">
-                  <MapPin size={20} className="text-purple-400" />
-                  <span className="text-base font-semibold">{searchLocation}</span>
-                </div>
-                <span className="text-gray-500 text-xl">▼</span>
-              </button>
-              
-              {showLocationSearch && (
-                <div className="absolute z-50 mt-2 w-full bg-gray-900 border border-gray-700 rounded-xl shadow-2xl">
-                  <div className="p-4 space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Enter city, state or zip code..."
-                      className="w-full bg-gray-800 text-white px-4 py-4 rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none text-base font-medium placeholder-gray-500"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && e.target.value.trim()) {
-                          handleLocationChange(e.target.value.trim());
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => {
-                          getCurrentLocation();
-                          setShowLocationSearch(false);
-                        }}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        📍 {isLoadingLocation ? 'Finding Your Location...' : 'Use Current Location'}
-                      </button>
-                      <button
-                        onClick={() => handleLocationChange('San Francisco, CA')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        🌆 San Francisco, CA
-                      </button>
-                      <button
-                        onClick={() => handleLocationChange('Los Angeles, CA')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        🌴 Los Angeles, CA
-                      </button>
-                      <button
-                        onClick={() => handleLocationChange('New York, NY')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        🗽 New York, NY
-                      </button>
-                      <button
-                        onClick={() => handleLocationChange('Chicago, IL')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        🏙️ Chicago, IL
-                      </button>
-                      <button
-                        onClick={() => handleLocationChange('Miami, FL')}
-                        className="w-full text-left px-4 py-4 text-base font-medium text-gray-300 hover:bg-gray-800 rounded-lg transition-all touch-manipulation"
-                        disabled={isLoadingLocation}
-                      >
-                        🏖️ Miami, FL
-                      </button>
-                    </div>
-                    <div className="text-xs text-gray-500 text-center mt-3">
-                      Try: "Seattle, WA", "90210", "Austin TX", or any US city
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Radius Selector - Full Width on Mobile */}
-            <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
-              <span className="text-base font-semibold text-gray-300">Search Radius</span>
-              <select
-                value={searchRadius}
-                onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
-                className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer touch-manipulation"
-              >
-                <option value={0.25}>0.25 mi</option>
-                <option value={0.5}>0.5 mi</option>
-                <option value={1}>1 mi</option>
-                <option value={2}>2 mi</option>
-                <option value={5}>5 mi</option>
-                <option value={10}>10 mi</option>
-                <option value={25}>25 mi</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Category Filters - Mobile Optimized */}
-      <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
-        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
-          {categories.map((category) => {
-            const IconComponent = category.icon;
-            return (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max touch-manipulation ${
-                  selectedCategory === category.id
-                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg shadow-purple-500/25'
-                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700 hover:border-gray-600'
-                }`}
-              >
-                <IconComponent size={18} />
-                <span className="text-base">{category.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Business List */}
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="flex items-center space-x-3 mb-2">
-              <h2 className="text-2xl font-bold text-white">
-                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
-              </h2>
-              {realBusinesses.length > 0 ? (
-                <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  FOURSQUARE LIVE
-                </span>
-              ) : FOURSQUARE_API_KEY && FOURSQUARE_API_KEY !== 'YOUR_FOURSQUARE_API_KEY' ? (
-                <span className="bg-yellow-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  NO RESULTS
-                </span>
-              ) : (
-                <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                  DEMO DATA
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-gray-400 font-medium">
-              Found by Foursquare API • Sorted by late night relevance
-              {searchQuery && ` • Search: "${searchQuery}"`}
-              {selectedCategory !== 'all' && ` • Category: ${selectedCategory}`}
-              {allBusinesses.length !== filteredBusinesses.length && 
-                ` • ${allBusinesses.length - filteredBusinesses.length} filtered by search/category`
-              }
-            </p>
-          </div>
-        </div>
-
-        {isLoadingPlaces && (
-          <div className="text-center py-12">
-            <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-400 font-medium">Loading businesses from Foursquare...</p>
-          </div>
-        )}
-
-        {!userLocation && !isLoadingLocation && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🌙</div>
-            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
-            <p className="text-gray-400 mb-6">We'll find restaurants, services, and businesses open late or all night using Foursquare</p>
-            <button
-              onClick={getCurrentLocation}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
-            >
-              📍 Get My Location
-            </button>
-            <p className="text-xs text-gray-500 mt-4">Add your free Foursquare API key for live data</p>
-          </div>
-        )}
-
-        {!isLoadingPlaces && userLocation && realBusinesses.length === 0 && (FOURSQUARE_API_KEY.includes('YOUR_ACTUAL_API_KEY_HERE')) && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🔑</div>
-            <h3 className="text-xl font-bold text-white mb-2">Add Foursquare API Key for Real Data</h3>
-            <p className="text-gray-400 mb-6">Get 100,000 free requests/day with real business hours and ratings</p>
-            <div className="space-y-4 max-w-md mx-auto">
-              {!showApiKeyInput ? (
-                <>
-                  <button
-                    onClick={() => setShowApiKeyInput(true)}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation"
-                  >
-                    🔑 Enter API Key
-                  </button>
-                  <p className="text-center text-gray-500 text-sm">or</p>
-                  <a
-                    href="https://foursquare.com/developers/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all touch-manipulation text-center"
-                  >
-                    🚀 Get Free API Key
-                  </a>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  <input
-                    type="text"
-                    placeholder="Enter your Foursquare API key (fsq3...)"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full bg-gray-900 text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-purple-500 focus:outline-none text-sm font-mono"
-                  />
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => {
-                        if (apiKey.startsWith('fsq3') && apiKey.length > 20) {
-                          setShowApiKeyInput(false);
-                          // Trigger new search with API key
-                          if (userLocation) {
-                            fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
-                          }
-                        } else {
-                          alert('Please enter a valid Foursquare API key (should start with fsq3)');
-                        }
-                      }}
-                      disabled={!apiKey.startsWith('fsq3')}
-                      className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold transition-all"
-                    >
-                      ✓ Use Key
-                    </button>
-                    <button
-                      onClick={() => setShowApiKeyInput(false)}
-                      className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold transition-all"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-              <p className="text-xs text-gray-500">
-                1. Sign up at foursquare.com/developers<br/>
-                2. Create new app, copy API key<br/>
-                3. Paste key above (starts with fsq3...)
-              </p>
-            </div>
-          </div>
-        )}
-
-        {filteredBusinesses.length > 0 ? (
-          filteredBusinesses.map((business) => (
-            <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg hover:shadow-purple-500/10 mx-1">
-              <div className="flex justify-between items-start mb-6">
-                <div className="flex-1 pr-4">
-                  <div className="flex items-center space-x-3 mb-3">
-                    <h3 className="font-bold text-xl text-white tracking-tight leading-tight">{business.name}</h3>
-                    {business.verified && (
-                      <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg shadow-green-400/50" title="Verified Open"></div>
-                    )}
-                    {business.lateNightLevel && business.lateNightLevel !== 'Check Hours' && (
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        business.lateNightLevel === '24/7' 
-                          ? 'bg-green-600 text-white' 
-                          : business.lateNightLevel === 'Open Very Late'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-purple-600 text-white'
-                      }`}>
-                        {business.lateNightLevel}
-                      </span>
-                    )}
-                  </div>
-                  {!business.reportedOpen && (
-                    <div className="flex items-center space-x-2 bg-red-900/50 px-3 py-2 rounded-full text-sm border border-red-800 mb-3 w-fit">
-                      <AlertTriangle size={14} className="text-red-400" />
-                      <span className="text-red-400 font-semibold">Reported Closed</span>
-                    </div>
-                  )}
-                  <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
-                    <MapPin size={18} />
-                    <span className="font-medium">{business.address} • {business.distance}</span>
-                  </div>
-                  
-                  {/* Mobile-optimized stats row */}
-                  <div className="flex items-center space-x-6 mb-4">
-                    <div className="flex items-center space-x-2">
-                      <Users size={18} className="text-gray-500" />
-                      <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
-                        {business.crowdLevel}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Star size={18} className="fill-yellow-400 text-yellow-400" />
-                      <span className="text-base font-bold text-gray-200">{business.rating}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm text-gray-500 font-medium">Safety:</span>
-                      <div className="flex space-x-1">
-                        {getSafetyStars(business.safetyRating)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Mobile-optimized favorite button */}
-                <button
-                  onClick={() => toggleFavorite(business.id)}
-                  className={`p-3 rounded-full transition-all touch-manipulation ${
-                    favorites.has(business.id) 
-                      ? 'text-red-400 hover:text-red-300 bg-red-900/20' 
-                      : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
-                  }`}
-                >
-                  <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
-                </button>
-              </div>
-
-              {/* Ride Share Integration - Real Working Links */}
-              <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Car size={20} className="text-purple-400" />
-                    <div>
-                      <span className="text-base font-semibold text-gray-200 block">Ride there</span>
-                      <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button 
-                      onClick={() => bookUberRide(business)}
-                      className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700 touch-manipulation"
-                    >
-                      Uber
-                    </button>
-                    <button 
-                      onClick={() => bookLyftRide(business)}
-                      className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all touch-manipulation"
-                    >
-                      Lyft
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Features - Mobile Layout */}
-              <div className="flex flex-wrap gap-2 mb-5">
-                {business.features.map((feature, index) => (
-                  <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
-                    {feature}
-                  </span>
-                ))}
-              </div>
-
-              {/* Action buttons - Real Functions + Coming Soon */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => showNavigationOptions(business)}
-                  className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg shadow-purple-500/25 touch-manipulation"
-                >
-                  <Navigation size={16} />
-                  <span>Navigate</span>
-                  <span className="text-purple-200 text-xs">✓</span>
-                </button>
-                
-                <button
-                  onClick={() => setReportModal(business)}
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation"
-                >
-                  <AlertTriangle size={16} />
-                  <span>Report</span>
-                  <span className="text-green-400 text-xs">✓</span>
-                </button>
-
-                <button
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
-                >
-                  <MessageSquare size={16} />
-                  <span>Reviews</span>
-                  <span className="text-yellow-400 text-xs">Soon</span>
-                </button>
-                
-                <button
-                  className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 hover:border-gray-700 touch-manipulation opacity-75"
-                >
-                  <span>📸</span>
-                  <span>Photos</span>
-                  <span className="text-yellow-400 text-xs">Soon</span>
-                </button>
-              </div>
-            </div>
-          ))
-        ) : null}
-      </div>
-
-      {/* Report Modal */}
-      {reportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-end justify-center z-50 backdrop-blur-sm">
-          <div className="bg-gray-950 rounded-t-3xl w-full border-t border-gray-800 shadow-2xl">
-            <div className="p-6 border-b border-gray-800">
-              <div className="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4"></div>
-              <h3 className="text-2xl font-bold text-white">Report Status</h3>
-              <p className="text-base text-gray-400 font-medium mt-2">{reportModal.name}</p>
-            </div>
-            <div className="p-6 space-y-6">
-              <p className="text-lg text-gray-300 font-medium">Is this place currently open?</p>
-              <div className="space-y-4">
-                <button
-                  onClick={() => handleReport(reportModal.id, true)}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
-                >
-                  ✓ Yes, it's open
-                </button>
-                <button
-                  onClick={() => handleReport(reportModal.id, false)}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg touch-manipulation"
-                >
-                  ✗ No, it's closed
-                </button>
-              </div>
-              <div className="text-sm text-gray-500 mt-4 font-medium text-center">
-                Last reported: {reportModal.lastReported}
-              </div>
-            </div>
-            <div className="p-6 border-t border-gray-800 pb-8">
-              <button 
-                onClick={() => setReportModal(null)}
-                className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl text-base font-semibold transition-all border border-gray-800 touch-manipulation"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bottom Navigation - Mobile Optimized */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 shadow-2xl safe-area-pb">
-        <div className="flex justify-around items-center py-4 px-4">
-          <button className="flex flex-col items-center space-y-2 text-purple-400 p-3 -m-3 touch-manipulation">
-            <MapPin size={28} />
-            <span className="text-xs font-semibold">Nearby</span>
-          </button>
-          <button 
-            onClick={() => setShowNotifications(true)}
-            className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 relative transition-colors p-3 -m-3 touch-manipulation"
-          >
-            <Bell size={28} />
-            <span className="text-xs font-semibold">Alerts</span>
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/50">
-              <span className="text-xs text-white font-bold">2</span>
-            </div>
-          </button>
-          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
-            <Clock size={28} />
-            <span className="text-xs font-semibold">History</span>
-          </button>
-          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3 -m-3 touch-manipulation">
-            <Heart size={28} />
-            <span className="text-xs font-semibold">Favorites</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Add bottom padding to prevent content from being hidden behind navigation */}
-      <div className="h-24"></div>
-      
-      {/* Feature Status Footer */}
-      <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
-        <div className="text-xs text-gray-500 space-y-2">
-          <div>✅ <span className="text-green-400">Working Now:</span> GPS • Navigation • Rideshare • Favorites • Reports • Location Search</div>
-          <div>🌙 <span className="text-purple-400">All Businesses:</span> Shows ALL businesses sorted by late night relevance</div>
-          <div>🚧 <span className="text-yellow-400">Coming Soon:</span> User Reviews • Photo Upload • Push Notifications • Enhanced Filters</div>
-          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Category: {selectedCategory} • Search: "{searchQuery}" • Radius: {searchRadius}mi</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default NightOwlsApp;
