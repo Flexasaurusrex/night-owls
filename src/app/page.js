@@ -10,8 +10,6 @@ const NightOwlsApp = () => {
   const [favorites, setFavorites] = useState(new Set([2, 4]));
   const [reportModal, setReportModal] = useState(null);
   const [searchRadius, setSearchRadius] = useState(5);
-  const [searchLocation, setSearchLocation] = useState('Current Location');
-  const [showLocationSearch, setShowLocationSearch] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [realBusinesses, setRealBusinesses] = useState([]);
@@ -19,70 +17,6 @@ const NightOwlsApp = () => {
 
   // FOURSQUARE API KEY - WORKING VERSION
   const FOURSQUARE_API_KEY = 'fsq3MvvG70SW/wdvH6RS3DaTFgs4leyty2sGz8Id6JneBTk=';
-
-  // In-memory cache
-  const [placesCache, setPlacesCache] = useState(new Map());
-  const CACHE_DURATION = 10 * 60 * 1000;
-
-  // FIXED: Better geocoding function with more cities and error handling
-  const geocodeLocation = async (locationString) => {
-    const cityCoordinates = {
-      'san francisco, ca': { lat: 37.7749, lng: -122.4194 },
-      'san francisco': { lat: 37.7749, lng: -122.4194 },
-      'sf': { lat: 37.7749, lng: -122.4194 },
-      'los angeles, ca': { lat: 34.0522, lng: -118.2437 },
-      'los angeles': { lat: 34.0522, lng: -118.2437 },
-      'la': { lat: 34.0522, lng: -118.2437 },
-      'new york, ny': { lat: 40.7128, lng: -74.0060 },
-      'new york': { lat: 40.7128, lng: -74.0060 },
-      'nyc': { lat: 40.7128, lng: -74.0060 },
-      'chicago, il': { lat: 41.8781, lng: -87.6298 },
-      'chicago': { lat: 41.8781, lng: -87.6298 },
-      'washington, dc': { lat: 38.9072, lng: -77.0369 },
-      'washington dc': { lat: 38.9072, lng: -77.0369 },
-      'dc': { lat: 38.9072, lng: -77.0369 },
-      'miami, fl': { lat: 25.7617, lng: -80.1918 },
-      'miami': { lat: 25.7617, lng: -80.1918 },
-      'seattle, wa': { lat: 47.6062, lng: -122.3321 },
-      'seattle': { lat: 47.6062, lng: -122.3321 },
-      'austin, tx': { lat: 30.2672, lng: -97.7431 },
-      'austin': { lat: 30.2672, lng: -97.7431 },
-      'denver, co': { lat: 39.7392, lng: -104.9903 },
-      'denver': { lat: 39.7392, lng: -104.9903 },
-      'boston, ma': { lat: 42.3601, lng: -71.0589 },
-      'boston': { lat: 42.3601, lng: -71.0589 }
-    };
-
-    const normalizedLocation = locationString.toLowerCase().trim();
-    
-    if (cityCoordinates[normalizedLocation]) {
-      console.log(`📍 Using coordinates for ${locationString}: ${cityCoordinates[normalizedLocation].lat}, ${cityCoordinates[normalizedLocation].lng}`);
-      return cityCoordinates[normalizedLocation];
-    }
-
-    // If not in our list, try external geocoding
-    try {
-      console.log(`🔍 Geocoding external location: ${locationString}`);
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationString)}&limit=1&countrycodes=us`
-      );
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        const coords = {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon)
-        };
-        console.log(`✅ Geocoded ${locationString} to:`, coords);
-        return coords;
-      }
-    } catch (error) {
-      console.error('Geocoding error:', error);
-    }
-    
-    console.log(`❌ Could not geocode ${locationString}, using NYC default`);
-    return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
-  };
 
   // Distance calculation
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -156,7 +90,7 @@ const NightOwlsApp = () => {
     };
   };
 
-  // MAIN API FUNCTION - FIXED to work with any location
+  // MAIN API FUNCTION - SIMPLIFIED FOR CURRENT LOCATION ONLY
   const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
     setIsLoadingPlaces(true);
     
@@ -441,7 +375,7 @@ const NightOwlsApp = () => {
     return Math.min(50, score);
   };
 
-  // Get user location
+  // Get user location - SIMPLIFIED
   const getCurrentLocation = () => {
     setIsLoadingLocation(true);
     
@@ -458,7 +392,6 @@ const NightOwlsApp = () => {
           lat: position.coords.latitude,
           lng: position.coords.longitude
         });
-        setSearchLocation('Current Location');
         setIsLoadingLocation(false);
       },
       (error) => {
@@ -466,39 +399,6 @@ const NightOwlsApp = () => {
         setIsLoadingLocation(false);
       }
     );
-  };
-
-  // FIXED: Handle location change properly
-  const handleLocationChange = async (newLocation) => {
-    setShowLocationSearch(false);
-    setSearchLocation(newLocation + ' (Loading...)');
-    setIsLoadingLocation(true);
-    
-    try {
-      console.log(`🔄 Changing location to: ${newLocation}`);
-      const coordinates = await geocodeLocation(newLocation);
-      
-      if (coordinates && coordinates.lat && coordinates.lng) {
-        setUserLocation(coordinates);
-        setSearchLocation(newLocation);
-        console.log(`✅ Location changed to ${newLocation}: ${coordinates.lat}, ${coordinates.lng}`);
-        
-        // Clear previous results and fetch new ones
-        setRealBusinesses([]);
-        
-        // Give a small delay to show the loading state
-        setTimeout(() => {
-          fetchRealPlaces(coordinates.lat, coordinates.lng, searchRadius);
-        }, 100);
-      } else {
-        throw new Error('Invalid coordinates returned');
-      }
-    } catch (error) {
-      console.error('❌ Error changing location:', error);
-      setSearchLocation(newLocation + ' (Error)');
-    }
-    
-    setIsLoadingLocation(false);
   };
 
   // Navigation functions
@@ -586,10 +486,8 @@ const NightOwlsApp = () => {
     getCurrentLocation();
   }, []);
 
-  // FIXED: Better location change handling
   useEffect(() => {
-    if (userLocation && userLocation.lat && userLocation.lng && !isLoadingLocation) {
-      console.log(`🔄 useEffect triggered - fetching places for:`, userLocation);
+    if (userLocation && userLocation.lat && userLocation.lng) {
       fetchRealPlaces(userLocation.lat, userLocation.lng, searchRadius);
     }
   }, [userLocation, searchRadius]);
@@ -638,4 +536,317 @@ const NightOwlsApp = () => {
           </div>
         </div>
 
-        {/* Search Bar */
+        {/* Search Bar */}
+        <div className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search late night businesses..."
+              className="w-full bg-gray-900 text-white pl-12 pr-4 py-4 rounded-xl border border-gray-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none transition-all font-medium placeholder-gray-500 text-base"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Current Location Display */}
+          <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
+            <div className="flex items-center space-x-3">
+              <MapPin size={20} className="text-purple-400" />
+              <span className="text-base font-semibold text-gray-300">Current Location</span>
+            </div>
+            <button
+              onClick={getCurrentLocation}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all"
+            >
+              📍 Get My Location
+            </button>
+          </div>
+        )}
+
+        {filteredBusinesses.map((business) => (
+          <div key={business.id} className="bg-gray-950 rounded-2xl p-6 border border-gray-800 hover:border-purple-500/50 transition-all shadow-lg">
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex-1 pr-4">
+                <div className="flex items-center space-x-3 mb-3">
+                  <h3 className="font-bold text-xl text-white">{business.name}</h3>
+                  {business.verified && (
+                    <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg" title="Verified Open"></div>
+                  )}
+                  {business.lateNightLevel && (
+                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white">
+                      {business.lateNightLevel}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2 text-gray-400 text-base mb-4">
+                  <MapPin size={18} />
+                  <span className="font-medium">{business.address} • {business.distance}</span>
+                </div>
+                
+                <div className="flex items-center space-x-6 mb-4">
+                  <div className="flex items-center space-x-2">
+                    <Users size={18} className="text-gray-500" />
+                    <span className={`text-base font-semibold ${getCrowdColor(business.crowdLevel)}`}>
+                      {business.crowdLevel}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Star size={18} className="fill-yellow-400 text-yellow-400" />
+                    <span className="text-base font-bold text-gray-200">{business.rating}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-sm text-gray-500 font-medium">Safety:</span>
+                    <div className="flex space-x-1">
+                      {getSafetyStars(business.safetyRating)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => toggleFavorite(business.id)}
+                className={`p-3 rounded-full transition-all ${
+                  favorites.has(business.id) 
+                    ? 'text-red-400 bg-red-900/20' 
+                    : 'text-gray-400 hover:text-red-400 hover:bg-red-900/20'
+                }`}
+              >
+                <Heart size={24} className={favorites.has(business.id) ? 'fill-red-400' : ''} />
+              </button>
+            </div>
+
+            {/* Ride Share */}
+            <div className="bg-gray-900 rounded-xl p-5 mb-5 border border-gray-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Car size={20} className="text-purple-400" />
+                  <div>
+                    <span className="text-base font-semibold text-gray-200 block">Ride there</span>
+                    <span className="text-sm text-gray-400 font-medium">{business.rideShareTime} • {business.rideShareCost}</span>
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={() => bookUberRide(business)}
+                    className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all border border-gray-700"
+                  >
+                    Uber
+                  </button>
+                  <button 
+                    onClick={() => bookLyftRide(business)}
+                    className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+                  >
+                    Lyft
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Features */}
+            <div className="flex flex-wrap gap-2 mb-5">
+              {business.features.map((feature, index) => (
+                <span key={index} className="bg-gray-900 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium border border-gray-800">
+                  {feature}
+                </span>
+              ))}
+            </div>
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => openInGoogleMaps(business)}
+                className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all shadow-lg"
+              >
+                <Navigation size={16} />
+                <span>Navigate</span>
+              </button>
+              
+              <button
+                onClick={() => setReportModal(business)}
+                className="flex items-center justify-center space-x-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
+              >
+                <AlertTriangle size={16} />
+                <span>Report</span>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Report Modal */}
+      {reportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-end justify-center z-50">
+          <div className="bg-gray-950 rounded-t-3xl w-full border-t border-gray-800 shadow-2xl">
+            <div className="p-6 border-b border-gray-800">
+              <div className="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4"></div>
+              <h3 className="text-2xl font-bold text-white">Report Status</h3>
+              <p className="text-base text-gray-400 font-medium mt-2">{reportModal.name}</p>
+            </div>
+            <div className="p-6 space-y-6">
+              <p className="text-lg text-gray-300 font-medium">Is this place currently open?</p>
+              <div className="space-y-4">
+                <button
+                  onClick={() => {
+                    console.log(`Reported ${reportModal.id} as open`);
+                    setReportModal(null);
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg"
+                >
+                  ✓ Yes, it's open
+                </button>
+                <button
+                  onClick={() => {
+                    console.log(`Reported ${reportModal.id} as closed`);
+                    setReportModal(null);
+                  }}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-xl text-lg font-semibold transition-all shadow-lg"
+                >
+                  ✗ No, it's closed
+                </button>
+              </div>
+              <div className="text-sm text-gray-500 mt-4 font-medium text-center">
+                Last reported: {reportModal.lastReported}
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-800 pb-8">
+              <button 
+                onClick={() => setReportModal(null)}
+                className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl text-base font-semibold transition-all border border-gray-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-950 border-t border-gray-800 shadow-2xl">
+        <div className="flex justify-around items-center py-4 px-4">
+          <button className="flex flex-col items-center space-y-2 text-purple-400 p-3">
+            <MapPin size={28} />
+            <span className="text-xs font-semibold">Nearby</span>
+          </button>
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 relative transition-colors p-3">
+            <Bell size={28} />
+            <span className="text-xs font-semibold">Alerts</span>
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
+              <span className="text-xs text-white font-bold">2</span>
+            </div>
+          </button>
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3">
+            <Clock size={28} />
+            <span className="text-xs font-semibold">History</span>
+          </button>
+          <button className="flex flex-col items-center space-y-2 text-gray-400 hover:text-purple-400 transition-colors p-3">
+            <Heart size={28} />
+            <span className="text-xs font-semibold">Favorites</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Bottom padding */}
+      <div className="h-24"></div>
+      
+      {/* Debug Footer */}
+      <div className="bg-gray-950 p-4 border-t border-gray-800 text-center">
+        <div className="text-xs text-gray-500 space-y-2">
+          <div>✅ <span className="text-green-400">Working:</span> GPS • Navigation • Rideshare • Favorites • Reports</div>
+          <div>🔧 <span className="text-blue-400">Debug:</span> Found: {realBusinesses.length} • Displayed: {filteredBusinesses.length} • Radius: {searchRadius}mi</div>
+          <div>📍 <span className="text-purple-400">Location:</span> {userLocation ? `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}` : 'Not set'}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default NightOwlsApp;text-purple-400 hover:text-purple-300 text-sm font-semibold transition-colors"
+            >
+              📍 Refresh
+            </button>
+          </div>
+
+          {/* UPDATED: Extended Radius Control */}
+          <div className="flex items-center justify-between bg-gray-900 px-4 py-4 rounded-xl border border-gray-700">
+            <span className="text-base font-semibold text-gray-300">Search Radius</span>
+            <select
+              value={searchRadius}
+              onChange={(e) => setSearchRadius(parseFloat(e.target.value))}
+              className="bg-transparent text-white text-base font-bold focus:outline-none cursor-pointer"
+            >
+              <option value={1}>1 mi</option>
+              <option value={2}>2 mi</option>
+              <option value={5}>5 mi</option>
+              <option value={10}>10 mi</option>
+              <option value={25}>25 mi</option>
+              <option value={50}>50 mi</option>
+              <option value={75}>75 mi</option>
+              <option value={100}>100 mi</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Category Filters */}
+      <div className="px-4 py-6 bg-gray-950 border-b border-gray-800">
+        <div className="flex space-x-3 overflow-x-auto pb-2 -mx-4 px-4">
+          {categories.map((category) => {
+            const IconComponent = category.icon;
+            return (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`flex items-center space-x-3 px-6 py-4 rounded-full whitespace-nowrap transition-all font-semibold min-w-max ${
+                  selectedCategory === category.id
+                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg'
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-700'
+                }`}
+              >
+                <IconComponent size={18} />
+                <span className="text-base">{category.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Business List */}
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <div className="flex items-center space-x-3 mb-2">
+              <h2 className="text-2xl font-bold text-white">
+                {isLoadingPlaces ? 'Finding businesses...' : `${filteredBusinesses.length} businesses found`}
+              </h2>
+              {realBusinesses.length > 0 ? (
+                <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  FOURSQUARE LIVE
+                </span>
+              ) : (
+                <span className="bg-orange-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  DEMO DATA
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 font-medium">
+              Sorted by late-night score • Real-time data from Foursquare
+            </p>
+          </div>
+        </div>
+
+        {isLoadingPlaces && (
+          <div className="text-center py-12">
+            <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-400 font-medium">Searching within {searchRadius} miles...</p>
+          </div>
+        )}
+
+        {!userLocation && !isLoadingLocation && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🌙</div>
+            <h3 className="text-xl font-bold text-white mb-2">Find businesses near you</h3>
+            <p className="text-gray-400 mb-6">Get real-time data on late night businesses</p>
+            <button
+              onClick={getCurrentLocation}
+              className="
