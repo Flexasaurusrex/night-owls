@@ -79,20 +79,49 @@ const NightOwlsApp = () => {
     return parts.join(', ') || 'Address not available';
   };
 
-  // Category mapping
-  const getCategoryFromFoursquare = (categories) => {
-    if (!categories || categories.length === 0) return 'services';
+  // UPDATED: Better safety rating calculation
+  const calculateSafetyRating = (place, category) => {
+    let safety = 3; // Base safety
     
-    const categoryMap = {
-      '13065': 'food', '13025': 'food', '13032': 'coffee',
-      '17069': 'gas', '17097': 'pharmacy', '17043': 'grocery',
-      '18021': 'gym'
-    };
+    // Higher rated places tend to be safer
+    if (place.rating) {
+      const normalizedRating = place.rating / 2; // Convert 10-point to 5-point scale
+      if (normalizedRating > 4) safety += 1;
+      if (normalizedRating > 4.5) safety += 1;
+    }
     
-    return categoryMap[categories[0].id] || 'food';
+    // Gas stations and pharmacies often have good lighting/security
+    if (['gas', 'pharmacy'].includes(category)) safety += 1;
+    
+    // Chain businesses often have better security
+    const businessName = place.name.toLowerCase();
+    const majorChains = [
+      'cvs', 'walgreens', 'rite aid', // Pharmacies
+      'shell', 'chevron', 'exxon', 'mobil', 'bp', // Gas
+      'mcdonalds', 'taco bell', 'dennys', 'ihop', // Food
+      '7-eleven', 'circle k', 'wawa' // Convenience
+    ];
+    if (majorChains.some(chain => businessName.includes(chain))) safety += 1;
+    
+    return Math.min(5, Math.max(1, safety));
   };
 
-  // MAIN API FUNCTION - FIXED
+  // UPDATED: Better business features based on category
+  const getBusinessFeatures = (category) => {
+    const features = {
+      food: ['Late Night Menu', 'Drive-thru', 'Well-lit', 'Security'],
+      coffee: ['24/7 Hours', 'Free WiFi', 'Study Space', 'Power Outlets'],
+      gas: ['24/7 Access', 'Well-lit Pumps', 'Convenience Store', 'Security Cameras'],
+      pharmacy: ['24/7 Pickup', 'Drive-thru', 'Emergency Meds', 'Well-lit'],
+      grocery: ['24/7 Hours', 'ATM', 'Hot Food', 'Self Checkout'],
+      gym: ['24/7 Access', 'Key Card Entry', 'Security Cameras', 'Well-lit'],
+      entertainment: ['Late Hours', 'Group Friendly', 'Parking', 'Security'],
+      services: ['24/7 Access', 'Well-lit', 'Security', 'Parking']
+    };
+    return features[category] || features.services;
+  };
+
+  // MAIN API FUNCTION - COMPLETELY REWRITTEN FOR ACCURACY
   const fetchRealPlaces = async (lat, lng, radiusMiles = 5) => {
     setIsLoadingPlaces(true);
     
@@ -103,63 +132,119 @@ const NightOwlsApp = () => {
     }
     
     try {
-      // CRITICAL FIX: Round to integer
       const radiusMeters = Math.round(radiusMiles * 1609.34);
       
       console.log(`🌙 API Key: ${FOURSQUARE_API_KEY.substring(0, 10)}...`);
       console.log(`🌙 Searching ${radiusMiles} miles (${radiusMeters}m) around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
       
-      const categories = '13065,13025,13032,17069,17097,17043,18021';
-      const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categories}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
+      // FIXED: Much more specific categories for each type
+      const categoryQueries = {
+        food: '13065,13025,13003,13035,13145,13064,13009,13199', // Fast food, restaurants, bars, diners, taco, pizza, burgers, sandwiches
+        coffee: '13032,13033,13034,13385', // Coffee shops, cafes, tea rooms, donut shops  
+        gas: '17069', // Gas stations only
+        pharmacy: '17097', // Pharmacies only
+        grocery: '17043,17051', // Convenience stores, supermarkets only
+        gym: '18021', // Gyms only
+        services: '17114,17115,17050', // ATM, banks, laundromats
+        entertainment: '10032,10027' // Theaters, bowling
+      };
 
-      console.log(`📍 API call: ${url}`);
+      const allBusinesses = [];
+      
+      // Search each category separately for better accuracy
+      for (const [categoryName, categoryIds] of Object.entries(categoryQueries)) {
+        console.log(`🔍 Searching ${categoryName} businesses...`);
+        
+        const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=${radiusMeters}&categories=${categoryIds}&limit=50&fields=fsq_id,name,location,categories,hours,rating,photos,tel,website,price,popularity`;
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': FOURSQUARE_API_KEY,
-          'Accept': 'application/json'
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': FOURSQUARE_API_KEY,
+              'Accept': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            console.error(`❌ API error for ${categoryName}: ${response.status}`);
+            continue;
+          }
+
+          const data = await response.json();
+          console.log(`📋 Found ${data.results.length} ${categoryName} businesses`);
+          
+          // Process and filter each business
+          for (const place of data.results) {
+            const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
+            
+            // Skip if too far
+            if (distance > radiusMiles) continue;
+            
+            // CRITICAL: Check if actually open late (2AM or later)
+            const isActuallyLateNight = checkIfOpenLate(place.hours);
+            const lateNightInfo = analyzeLateNightHours(place.hours);
+            
+            // FILTER: Only include if actually open late OR known 24/7 chains
+            const knownLateNightChains = [
+              '7-eleven', 'circle k', 'wawa', 'sheetz', 'speedway',
+              'mcdonalds', 'taco bell', 'del taco', 'jack in the box', 'white castle',
+              'dennys', 'ihop', 'waffle house', 'steak n shake',
+              'cvs', 'walgreens', 'rite aid', 
+              'shell', 'chevron', 'exxon', 'mobil', 'bp',
+              '24 hour fitness', 'anytime fitness', 'planet fitness'
+            ];
+            
+            const businessName = place.name.toLowerCase();
+            const isKnownLateNightChain = knownLateNightChains.some(chain => 
+              businessName.includes(chain)
+            );
+            
+            // STRICT FILTERING: Must be actually open late OR known late night chain
+            if (!isActuallyLateNight && !isKnownLateNightChain) {
+              console.log(`❌ Filtered out ${place.name} - not actually late night`);
+              continue;
+            }
+            
+            console.log(`✅ Late night confirmed: ${place.name} - ${lateNightInfo.status}`);
+
+            allBusinesses.push({
+              id: place.fsq_id,
+              name: place.name,
+              category: categoryName, // Use our category name directly
+              address: formatAddress(place.location),
+              distance: `${distance.toFixed(1)} miles`,
+              distanceValue: distance,
+              rating: place.rating ? (place.rating / 2) : 4.0,
+              crowdLevel: 'Quiet', // Late night is usually quiet
+              verified: true,
+              safetyRating: calculateSafetyRating(place, categoryName),
+              features: getBusinessFeatures(categoryName),
+              hours: place.hours?.display || lateNightInfo.display,
+              rideShareTime: `${Math.ceil(distance * 3)} min`,
+              rideShareCost: `${Math.ceil(distance * 2.5 + 8)}`,
+              lastReported: '30 min ago',
+              reportedOpen: true,
+              lateNightLevel: lateNightInfo.level,
+              isActuallyLateNight,
+              lateNightScore: calculateLateNightScore(place, categoryName, isActuallyLateNight, lateNightInfo)
+            });
+          }
+        } catch (error) {
+          console.error(`❌ Error fetching ${categoryName}:`, error);
         }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('📋 API error:', errorData);
-        throw new Error(`API error: ${response.status}`);
       }
 
-      const data = await response.json();
-      console.log(`🔍 Found ${data.results.length} businesses`);
-      
-      const businesses = data.results.map((place, index) => {
-        const distance = calculateDistance(lat, lng, place.location.lat, place.location.lng);
-        const category = getCategoryFromFoursquare(place.categories);
-        
-        console.log(`📏 ${place.name}: ${distance.toFixed(1)}mi, ${category}`);
+      // Sort by late night score (best late night places first), then by distance
+      const sortedBusinesses = allBusinesses.sort((a, b) => {
+        if (b.lateNightScore !== a.lateNightScore) {
+          return b.lateNightScore - a.lateNightScore;
+        }
+        return a.distanceValue - b.distanceValue;
+      });
 
-        return {
-          id: place.fsq_id,
-          name: place.name,
-          category,
-          address: formatAddress(place.location),
-          distance: `${distance.toFixed(1)} miles`,
-          distanceValue: distance,
-          rating: place.rating ? (place.rating / 2) : 4.0,
-          crowdLevel: 'Quiet',
-          verified: true,
-          safetyRating: 4,
-          features: ['Free WiFi', 'Parking', 'Well-lit'],
-          hours: place.hours?.display || '24/7',
-          rideShareTime: `${Math.ceil(distance * 3)} min`,
-          rideShareCost: `$${Math.ceil(distance * 2.5 + 8)}`,
-          lastReported: '30 min ago',
-          reportedOpen: true,
-          lateNightLevel: '24/7'
-        };
-      }).sort((a, b) => a.distanceValue - b.distanceValue);
-
-      setRealBusinesses(businesses);
-      console.log(`✅ Loaded ${businesses.length} businesses`);
+      setRealBusinesses(sortedBusinesses);
+      console.log(`✅ Final result: ${sortedBusinesses.length} verified late-night businesses`);
       
     } catch (error) {
       console.error('❌ API Error:', error.message);
@@ -167,6 +252,147 @@ const NightOwlsApp = () => {
     }
     
     setIsLoadingPlaces(false);
+  };
+
+  // NEW: Actually check if a business is open late based on real hours data
+  const checkIfOpenLate = (hoursData) => {
+    if (!hoursData || !hoursData.regular) return false;
+    
+    try {
+      // Check each day's hours
+      for (const daySchedule of hoursData.regular) {
+        if (daySchedule.open) {
+          for (const timeSlot of daySchedule.open) {
+            // Check if end time is 2 AM (0200) or later, or if it's 24/7
+            const endTime = parseInt(timeSlot.end);
+            
+            // 24/7 places (end time after start time next day)
+            if (endTime <= 600 && endTime < parseInt(timeSlot.start)) {
+              return true;
+            }
+            
+            // Places open until 2 AM or later (0200 = 2:00 AM)
+            if (endTime >= 200 && endTime <= 600) {
+              return true;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.log('Error parsing hours:', error);
+    }
+    
+    return false;
+  };
+
+  // NEW: Analyze hours to get detailed late night info
+  const analyzeLateNightHours = (hoursData) => {
+    if (!hoursData) {
+      return { level: 'Check Hours', status: 'Hours unknown', display: 'Check hours' };
+    }
+    
+    // Check display text first
+    const display = hoursData.display || '';
+    const displayLower = display.toLowerCase();
+    
+    if (displayLower.includes('24 hours') || displayLower.includes('24/7') || displayLower.includes('always open')) {
+      return { level: '24/7', status: 'Open 24/7', display: '24/7' };
+    }
+    
+    if (displayLower.includes('2:00 am') || displayLower.includes('2 am') || displayLower.includes('3:00 am') || displayLower.includes('3 am')) {
+      return { level: 'Open Very Late', status: 'Open until 2-3 AM', display };
+    }
+    
+    if (displayLower.includes('1:00 am') || displayLower.includes('1 am') || displayLower.includes('midnight')) {
+      return { level: 'Open Late', status: 'Open until midnight-1 AM', display };
+    }
+    
+    // Check structured hours data
+    if (hoursData.regular) {
+      try {
+        let latestEnd = 0;
+        let is24Hour = false;
+        
+        for (const daySchedule of hoursData.regular) {
+          if (daySchedule.open) {
+            for (const timeSlot of daySchedule.open) {
+              const startTime = parseInt(timeSlot.start);
+              const endTime = parseInt(timeSlot.end);
+              
+              // Check for 24/7 (end time wraps to next day)
+              if (endTime < startTime) {
+                is24Hour = true;
+              }
+              
+              // Track latest closing time
+              if (endTime >= 200 && endTime <= 600) {
+                latestEnd = Math.max(latestEnd, endTime);
+              }
+            }
+          }
+        }
+        
+        if (is24Hour) {
+          return { level: '24/7', status: 'Open 24/7', display: '24 hours' };
+        }
+        
+        if (latestEnd >= 300) {
+          return { level: 'Open Very Late', status: 'Open until 3+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
+        }
+        
+        if (latestEnd >= 200) {
+          return { level: 'Open Late', status: 'Open until 2+ AM', display: `Open until ${Math.floor(latestEnd/100)}:${(latestEnd%100).toString().padStart(2, '0')} AM` };
+        }
+      } catch (error) {
+        console.log('Error analyzing structured hours:', error);
+      }
+    }
+    
+    return { level: 'Check Hours', status: 'Hours unknown', display: display || 'Check hours' };
+  };
+
+  // NEW: Calculate late night score for ranking
+  const calculateLateNightScore = (place, category, isActuallyLateNight, lateNightInfo) => {
+    let score = 0;
+    
+    // Base score for being actually open late
+    if (isActuallyLateNight) score += 10;
+    
+    // Bonus for level of lateness
+    switch (lateNightInfo.level) {
+      case '24/7': score += 15; break;
+      case 'Open Very Late': score += 10; break;
+      case 'Open Late': score += 5; break;
+    }
+    
+    // Category relevance for late night
+    const categoryScores = {
+      food: 8,
+      coffee: 6,
+      gas: 9,
+      pharmacy: 7,
+      grocery: 8,
+      gym: 4,
+      services: 3,
+      entertainment: 2
+    };
+    score += categoryScores[category] || 1;
+    
+    // Known late night chains bonus
+    const businessName = place.name.toLowerCase();
+    const lateNightChains = [
+      '7-eleven', 'circle k', 'taco bell', 'mcdonalds', 'dennys', 
+      'ihop', 'waffle house', 'cvs', 'walgreens'
+    ];
+    
+    if (lateNightChains.some(chain => businessName.includes(chain))) {
+      score += 5;
+    }
+    
+    // Rating bonus
+    if (place.rating && place.rating > 8) score += 2;
+    
+    return Math.min(50, score);
   };
 
   // Get user location
