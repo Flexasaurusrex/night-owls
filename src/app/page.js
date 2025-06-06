@@ -118,7 +118,36 @@ const NightOwlsApp = () => {
       entertainment: ['Late Hours', 'Group Friendly', 'Parking', 'Security'],
       services: ['24/7 Access', 'Well-lit', 'Security', 'Parking']
     };
-    return features[category] || features.services;
+  // Helper to format time from HHMM to readable format
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    
+    const time = timeString.toString().padStart(4, '0');
+    let hours = parseInt(time.substr(0, 2));
+    const minutes = time.substr(2, 2);
+    
+    if (hours === 0) return `12:${minutes} AM`;
+    if (hours < 12) return `${hours}:${minutes} AM`;
+    if (hours === 12) return `12:${minutes} PM`;
+    return `${hours - 12}:${minutes} PM`;
+  };
+
+  // Distance calculation
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 3959;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Format address
+  const formatAddress = (location) => {
+    const parts = [location.address, location.locality, location.region].filter(Boolean);
+    return parts.join(', ') || 'Address not available';
   };
 
   // MAIN API FUNCTION - COMPLETELY REWRITTEN FOR ACCURACY
@@ -465,18 +494,90 @@ const NightOwlsApp = () => {
     return 'Check hours';
   };
 
-  // Helper to format time from HHMM to readable format
-  const formatTime = (timeString) => {
-    if (!timeString) return '';
+  // NEW: Calculate late night score for ranking
+  const calculateLateNightScore = (place, category, isActuallyLateNight, lateNightInfo) => {
+    let score = 0;
     
-    const time = timeString.toString().padStart(4, '0');
-    let hours = parseInt(time.substr(0, 2));
-    const minutes = time.substr(2, 2);
+    // Base score for being actually open late
+    if (isActuallyLateNight) score += 10;
     
-    if (hours === 0) return `12:${minutes} AM`;
-    if (hours < 12) return `${hours}:${minutes} AM`;
-    if (hours === 12) return `12:${minutes} PM`;
-    return `${hours - 12}:${minutes} PM`;
+    // Bonus for level of lateness
+    switch (lateNightInfo.level) {
+      case '24/7': score += 15; break;
+      case 'Open Very Late': score += 10; break;
+      case 'Open Late': score += 5; break;
+    }
+    
+    // Category relevance for late night
+    const categoryScores = {
+      food: 8,
+      coffee: 6,
+      gas: 9,
+      pharmacy: 7,
+      grocery: 8,
+      gym: 4,
+      services: 3,
+      entertainment: 2
+    };
+    score += categoryScores[category] || 1;
+    
+    // Known late night chains bonus
+    const businessName = place.name.toLowerCase();
+    const lateNightChains = [
+      '7-eleven', 'circle k', 'taco bell', 'mcdonalds', 'dennys', 
+      'ihop', 'waffle house', 'cvs', 'walgreens'
+    ];
+    
+    if (lateNightChains.some(chain => businessName.includes(chain))) {
+      score += 5;
+    }
+    
+    // Rating bonus
+    if (place.rating && place.rating > 8) score += 2;
+    
+    return Math.min(50, score);
+  };
+
+  // UPDATED: Better safety rating calculation
+  const calculateSafetyRating = (place, category) => {
+    let safety = 3; // Base safety
+    
+    // Higher rated places tend to be safer
+    if (place.rating) {
+      const normalizedRating = place.rating / 2; // Convert 10-point to 5-point scale
+      if (normalizedRating > 4) safety += 1;
+      if (normalizedRating > 4.5) safety += 1;
+    }
+    
+    // Gas stations and pharmacies often have good lighting/security
+    if (['gas', 'pharmacy'].includes(category)) safety += 1;
+    
+    // Chain businesses often have better security
+    const businessName = place.name.toLowerCase();
+    const majorChains = [
+      'cvs', 'walgreens', 'rite aid', // Pharmacies
+      'shell', 'chevron', 'exxon', 'mobil', 'bp', // Gas
+      'mcdonalds', 'taco bell', 'dennys', 'ihop', // Food
+      '7-eleven', 'circle k', 'wawa' // Convenience
+    ];
+    if (majorChains.some(chain => businessName.includes(chain))) safety += 1;
+    
+    return Math.min(5, Math.max(1, safety));
+  };
+
+  // UPDATED: Better business features based on category
+  const getBusinessFeatures = (category) => {
+    const features = {
+      food: ['Late Night Menu', 'Drive-thru', 'Well-lit', 'Security'],
+      coffee: ['24/7 Hours', 'Free WiFi', 'Study Space', 'Power Outlets'],
+      gas: ['24/7 Access', 'Well-lit Pumps', 'Convenience Store', 'Security Cameras'],
+      pharmacy: ['24/7 Pickup', 'Drive-thru', 'Emergency Meds', 'Well-lit'],
+      grocery: ['24/7 Hours', 'ATM', 'Hot Food', 'Self Checkout'],
+      gym: ['24/7 Access', 'Key Card Entry', 'Security Cameras', 'Well-lit'],
+      entertainment: ['Late Hours', 'Group Friendly', 'Parking', 'Security'],
+      services: ['24/7 Access', 'Well-lit', 'Security', 'Parking']
+    };
+    return features[category] || features.services;
   };
 
   // Get user location
